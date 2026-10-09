@@ -3,10 +3,16 @@
 ## Product scope
 
 - Android only, for one person's personal use.
-- Use VPN Gate's public relay list; do not operate VPN servers or collect user accounts.
+- Support VPN Gate's public relay list and VPNBook's published free OpenVPN profiles; do not operate VPN servers or collect user accounts.
 - Use OpenVPN for Android's documented AIDL API as the tunnel engine. That separate app must be installed.
 - Be explicit that VPN Gate relays are volunteer-operated and may have different logging policies.
 - Never show a connected state until the OpenVPN status callback reports it.
+
+## Current provider support
+
+- Show VPN Gate and VPNBook choices at launch.
+- Fetch the current VPNBook shared password each time the app opens; keep it in memory only.
+- Fetch VPNBook OpenVPN TCP 443 profile bundles on demand, validate the selected host, and pass the inline profile to OpenVPN for Android.
 
 ## Milestone 1 — server discovery
 

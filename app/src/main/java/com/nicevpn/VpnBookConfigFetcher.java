@@ -104,7 +104,7 @@ public final class VpnBookConfigFetcher {
         }
         String normalized = profile
                 .replaceAll("(?is)<auth-user-pass>.*?</auth-user-pass>", "")
-                .replaceAll("(?im)^\\s*auth-user-pass(?:\\s+[^\\r\\n]+)?\\s*$", "");
+                .replaceAll("(?im)^[ \\t]*auth-user-pass(?:[ \\t]+[^\\r\\n]+)?[ \\t]*$", "");
         String auth = "\n<auth-user-pass>\n" + USERNAME + "\n" + password
                 + "\n</auth-user-pass>\n";
         return auth + normalized;
