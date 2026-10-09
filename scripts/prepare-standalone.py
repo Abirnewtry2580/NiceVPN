@@ -53,11 +53,11 @@ def main() -> None:
     db_text = external_db.read_text()
     db_text = replace_once(
         db_text,
-        "    public String checkOpenVPNPermission(PackageManager pm) throws SecurityRemoteException {\n",
-        "    public String checkOpenVPNPermission(PackageManager pm) throws SecurityRemoteException {\n"
-        "        if (Binder.getCallingUid() == android.os.Process.myUid()) {\n"
-        "            return mContext.getPackageName();\n"
-        "        }\n\n",
+        "\\tpublic String checkOpenVPNPermission(PackageManager pm) throws SecurityRemoteException {\\n",
+        "\\tpublic String checkOpenVPNPermission(PackageManager pm) throws SecurityRemoteException {\\n"
+        "\\t\\tif (Binder.getCallingUid() == android.os.Process.myUid()) {\\n"
+        "\\t\\t\\treturn mContext.getPackageName();\\n"
+        "\\t\\t}\\n\\n",
         "self API authorization",
     )
     external_db.write_text(db_text)
