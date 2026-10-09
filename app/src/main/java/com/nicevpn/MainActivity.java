@@ -67,8 +67,17 @@ public final class MainActivity extends Activity {
         public void newStatus(String uuid, String state, String message, String level) {
             mainHandler.post(() -> {
                 String shownState = state == null || state.trim().isEmpty() ? "unknown" : state;
-                status.setText("OpenVPN status: " + shownState
-                        + (message == null || message.trim().isEmpty() ? "" : " · " + message));
+                if ("TCP_CONNECT".equalsIgnoreCase(shownState)) {
+                    status.setText("Trying to reach the selected VPN relay…");
+                } else if ("CONNECTRETRY".equalsIgnoreCase(shownState)) {
+                    status.setText("This relay is not responding. It is retrying; if this continues, disconnect and choose another relay.");
+                } else if ("CONNECTED".equalsIgnoreCase(shownState)) {
+                    status.setText("VPN connected"
+                            + (message == null || message.trim().isEmpty() ? "" : " · " + message));
+                } else {
+                    status.setText("VPN status: " + shownState
+                            + (message == null || message.trim().isEmpty() ? "" : " · " + message));
+                }
             });
         }
     };
@@ -84,7 +93,7 @@ public final class MainActivity extends Activity {
         public void onServiceDisconnected(ComponentName name) {
             openVpnService = null;
             callbackRegistered = false;
-            status.setText("OpenVPN client disconnected");
+            status.setText("Built-in VPN engine disconnected");
         }
     };
 
@@ -165,7 +174,7 @@ public final class MainActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         TextView disclaimer = new TextView(this);
-        disclaimer.setText("Connection requires OpenVPN for Android. VPN Gate relays are volunteer-operated; VPNBook is a shared free service.");
+        disclaimer.setText("NiceVPN includes its own VPN engine. VPN Gate relays are volunteer-operated; VPNBook is a shared free service.");
         disclaimer.setTextSize(12);
         disclaimer.setTextColor(0xFF6A4B24);
         disclaimer.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -242,7 +251,7 @@ public final class MainActivity extends Activity {
             card.addView(details);
 
             Button connect = new Button(this);
-            connect.setText("Connect with OpenVPN for Android");
+            connect.setText("Connect");
             connect.setEnabled(vpnBookPassword != null);
             connect.setOnClickListener(v -> connectToVpnBook(server));
             card.addView(connect);
@@ -364,7 +373,7 @@ public final class MainActivity extends Activity {
         card.addView(details);
 
         Button connect = new Button(this);
-        connect.setText("Connect with OpenVPN for Android");
+        connect.setText("Connect");
         connect.setOnClickListener(v -> connectTo(server));
         card.addView(connect);
 
@@ -379,7 +388,7 @@ public final class MainActivity extends Activity {
         pendingConnect = server;
         pendingInlineConfig = null;
         pendingConnectionLabel = server.country + " relay";
-        status.setText("Connecting to OpenVPN for Android…");
+        status.setText("Starting selected relay…");
         beginOpenVpnConnection();
     }
 
@@ -402,8 +411,11 @@ public final class MainActivity extends Activity {
                     beginOpenVpnConnection();
                 });
             } catch (Exception error) {
-                mainHandler.post(() -> status.setText(
-                        "Could not get a valid VPNBook profile. Check internet and retry."));
+                String reason = error.getMessage() == null
+                        ? error.getClass().getSimpleName() : error.getMessage();
+                if (reason.length() > 110) reason = reason.substring(0, 107) + "…";
+                String failure = reason;
+                mainHandler.post(() -> status.setText("VPNBook profile failed: " + failure));
             }
         });
     }
@@ -495,7 +507,7 @@ public final class MainActivity extends Activity {
 
     private void disconnectVpn() {
         if (openVpnService == null) {
-            status.setText("Connect to OpenVPN for Android first.");
+            status.setText("No VPN connection is active.");
             return;
         }
         try {
