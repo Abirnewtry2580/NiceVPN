@@ -156,6 +156,40 @@ def main() -> None:
     ET.SubElement(intent_filter, "category", {ANDROID + "name": "android.intent.category.LAUNCHER"})
     root.write(manifest, encoding="utf-8", xml_declaration=True)
 
+    # The UI flavor adds its own MAIN/LAUNCHER entry for the upstream profile-list screen.
+    # Remove only its launcher categories; keep the OpenVPN URI import and settings intents.
+    ui_manifest = engine / "main/src/ui/AndroidManifest.xml"
+    ui_tree = ET.parse(ui_manifest)
+    ui_root = ui_tree.getroot()
+    ui_application = ui_root.find("application")
+    if ui_application is None:
+        raise SystemExit("OpenVPN UI application element not found")
+
+    removed_launcher_categories = 0
+    for component in list(ui_application):
+        if component.tag not in ("activity", "activity-alias"):
+            continue
+        name = component.get(ANDROID + "name", "")
+        if not name.endswith(".activities.MainActivity"):
+            continue
+        for intent_filter in list(component.findall("intent-filter")):
+            actions = {node.get(ANDROID + "name") for node in intent_filter.findall("action")}
+            if "android.intent.action.MAIN" not in actions:
+                continue
+            for category in list(intent_filter.findall("category")):
+                if category.get(ANDROID + "name") in (
+                    "android.intent.category.LAUNCHER",
+                    "android.intent.category.LEANBACK_LAUNCHER",
+                ):
+                    intent_filter.remove(category)
+                    removed_launcher_categories += 1
+    if removed_launcher_categories != 2:
+        raise SystemExit(
+            "Expected to remove exactly the upstream phone and TV launcher categories, "
+            f"removed {removed_launcher_categories}"
+        )
+    ui_tree.write(ui_manifest, encoding="utf-8", xml_declaration=True)
+
     # Keep the upstream license beside the generated source workspace for the APK build.
     shutil.copyfile(engine / "doc/LICENSE.txt", repo / "build-openvpn-license.txt")
     print(f"Prepared NiceVPN with bundled engine from {revision}")
