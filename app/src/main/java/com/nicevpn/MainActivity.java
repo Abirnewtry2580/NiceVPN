@@ -49,6 +49,8 @@ public final class MainActivity extends Activity {
     private final List<VpnGateServer> servers = new ArrayList<>();
     private LinearLayout content;
     private TextView status;
+    private TextView vpnBookCredentialStatus;
+    private volatile String vpnBookPassword;
     private ProgressBar progress;
     private VpnGateServer pendingExport;
     private VpnGateServer pendingConnect;
@@ -86,6 +88,7 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         buildScreen();
+        refreshVpnBookPassword();
         refreshServers();
     }
 
@@ -108,6 +111,13 @@ public final class MainActivity extends Activity {
         note.setTextColor(0xFF52616B);
         note.setPadding(0, dp(6), 0, dp(8));
         root.addView(note);
+
+        vpnBookCredentialStatus = new TextView(this);
+        vpnBookCredentialStatus.setText("VPNBook password: fetching current password…");
+        vpnBookCredentialStatus.setTextSize(12);
+        vpnBookCredentialStatus.setTextColor(0xFF52616B);
+        vpnBookCredentialStatus.setPadding(0, 0, 0, dp(8));
+        root.addView(vpnBookCredentialStatus);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setGravity(Gravity.CENTER_VERTICAL);
@@ -146,6 +156,22 @@ public final class MainActivity extends Activity {
         root.addView(disclaimer);
 
         setContentView(root);
+    }
+
+    private void refreshVpnBookPassword() {
+        vpnBookCredentialStatus.setText("VPNBook password: fetching current password…");
+        executor.execute(() -> {
+            try {
+                String password = VpnBookCredentialFetcher.fetchCurrentPassword();
+                vpnBookPassword = password;
+                mainHandler.post(() -> vpnBookCredentialStatus.setText(
+                        "VPNBook password retrieved for this session."));
+            } catch (Exception error) {
+                vpnBookPassword = null;
+                mainHandler.post(() -> vpnBookCredentialStatus.setText(
+                        "VPNBook password unavailable. Reopen the app while online to retry."));
+            }
+        });
     }
 
     private void refreshServers() {
@@ -387,6 +413,7 @@ public final class MainActivity extends Activity {
             unbindService(openVpnConnection);
             serviceBound = false;
         }
+        vpnBookPassword = null;
         executor.shutdownNow();
         super.onDestroy();
     }
