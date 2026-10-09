@@ -1,25 +1,27 @@
 # NiceVPN
 
-Personal Android app for choosing VPN Gate or VPNBook servers and connecting through the OpenVPN for Android app.
+Personal Android VPN app for selecting public VPN Gate and VPNBook servers.
 
-## Current implementation
+## Current connection engine
 
-- Shows VPN Gate and VPNBook as provider choices.
-- Fetches VPN Gate's published CSV server list over HTTPS.
-- Fetches VPNBook's current shared password at each app launch, keeps it in memory only, and fetches the selected OpenVPN profile over HTTPS.
-- Shows relay country, host, reported speed, ping, sessions, and logging policy.
-- Requests connection through OpenVPN for Android's documented external AIDL API.
-- Can export a selected VPN Gate .ovpn profile separately.
-- Reports connection states received from the external OpenVPN app; it does not invent a connected state.
+The single-app build combines the NiceVPN provider screen with the OpenVPN for Android tunnel engine. The engine is pinned to [schwabe/ics-openvpn](https://github.com/schwabe/ics-openvpn) commit `bd8677a8056290aa444d36f64df037c34a2c2ec6`. NiceVPN is built as a separate package (`com.nicevpn`), so it does not replace an independently installed OpenVPN app.
 
-**OpenVPN for Android must also be installed on the phone.** NiceVPN controls that app; it does not bundle the OpenVPN tunnel engine.
+The first connection still requires Android's standard system VPN consent. No separate OpenVPN app installation is required by the integrated build.
 
-VPN Gate relays are operated by volunteers. Availability and logging policies differ by relay. VPNBook is a shared free service. NiceVPN checks the selected VPNBook profile's server address before passing it to OpenVPN. Neither option is a private VPN service.
+## Providers
+
+- VPN Gate's published CSV server list is fetched over HTTPS.
+- VPNBook's current shared password is fetched at each app launch and kept in memory only.
+- VPNBook's selected OpenVPN profile bundle is fetched over HTTPS, and its server address is checked before use.
+- VPN Gate profiles can be exported separately.
+- VPN Gate relays are volunteer-operated; availability and logging policy vary by relay. VPNBook is a shared free service.
 
 ## Build
 
-The project uses Android Gradle Plugin 9.4.0, Gradle 9.6.0, JDK 17, and Android SDK 36. GitHub Actions builds a debug APK and runs parser unit tests.
+GitHub Actions fetches the pinned OpenVPN source and its pinned submodules, overlays the NiceVPN Java UI and parser tests, then builds a debug APK with the OpenVPN 3 core. The overlay is in `scripts/prepare-standalone.py`. The exact upstream source revision and license are recorded in `THIRD_PARTY_NOTICES.md`.
+
+A successful CI build verifies compilation and parser tests. It does not verify that a public relay accepts a connection; real-device testing is still needed after the integrated APK is available.
 
 ## Roadmap
 
-See docs/ROADMAP.md.
+See [docs/ROADMAP.md](docs/ROADMAP.md).

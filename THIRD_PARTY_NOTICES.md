@@ -1,21 +1,11 @@
 # Third-party notices
 
-NiceVPN includes external API definitions and the APIVpnProfile Parcelable
-implementation from the remoteExample project in
-[schwabe/ics-openvpn](https://github.com/schwabe/ics-openvpn/tree/master/remoteExample).
-They are used to call the separate OpenVPN for Android app. NiceVPN does not
-bundle the OpenVPN tunnel engine.
+## Bundled OpenVPN engine
 
-Copyright 2013-2014 Arne Schwabe
+The integrated NiceVPN APK includes the OpenVPN for Android service and native OpenVPN 3 engine from [schwabe/ics-openvpn](https://github.com/schwabe/ics-openvpn), pinned to commit `bd8677a8056290aa444d36f64df037c34a2c2ec6`. The build overlay and the one-file self-API authorization patch are maintained in this repository. The upstream project is GPL version 2 with clarifications and additional terms, including its OpenSSL and Apache-library linking exceptions. The full license is `doc/LICENSE.txt` at the pinned upstream commit; the build script copies it to `build-openvpn-license.txt` in the CI workspace. OpenVPN and the engine's native submodules carry their own notices and licenses, which remain in the fetched source tree.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use these files except in compliance with the License.
-You may obtain a copy of the License at
+The NiceVPN provider UI and server parsers are combined with that GPL engine in the debug APK. Source changes and build steps for the combined app are provided in this public repository and in the pinned upstream source.
 
-    http://www.apache.org/licenses/LICENSE-2.0
+## VPN control API
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+The NiceVPN integration uses the upstream OpenVPN AIDL API within the same APK. The upstream `remoteExample` API definitions are licensed under Apache License 2.0. The integrated engine also contains its own GPL-licensed API implementation. See the pinned upstream `doc/LICENSE.txt`.

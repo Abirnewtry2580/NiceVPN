@@ -2,48 +2,31 @@
 
 ## Product scope
 
-- Android only, for one person's personal use.
+- Android app for one person's personal use.
+- One installable app: provider selection, server list, and OpenVPN tunnel engine are bundled together.
 - Support VPN Gate's public relay list and VPNBook's published free OpenVPN profiles; do not operate VPN servers or collect user accounts.
-- Use OpenVPN for Android's documented AIDL API as the tunnel engine. That separate app must be installed.
 - Be explicit that VPN Gate relays are volunteer-operated and may have different logging policies.
-- Never show a connected state until the OpenVPN status callback reports it.
+- Never show a connected state until an OpenVPN status callback reports it.
 
-## Current provider support
+## Current implementation
 
-- Show VPN Gate and VPNBook choices at launch.
-- Fetch the current VPNBook shared password each time the app opens; keep it in memory only.
-- Fetch VPNBook OpenVPN TCP 443 profile bundles on demand, validate the selected host, and pass the inline profile to OpenVPN for Android.
+- Provider UI and parsers are maintained in this repository.
+- The standalone build overlays that UI onto a pinned OpenVPN for Android source checkout.
+- The OpenVPN service, native OpenVPN 3 core, and UI ship in the same APK under the NiceVPN package name.
+- Android's system VPN consent is requested only when connecting.
+- The integration script authorizes only the bundled app's own UID to call its internal AIDL service; other callers still use OpenVPN's allow-list.
 
-## Milestone 1 — server discovery
+## Build and verification
 
-- Fetch VPN Gate's published CSV endpoint over HTTPS.
-- Parse server metadata and embedded OpenVPN profiles.
-- Show country, host, ping, reported speed, active sessions, and logging policy.
-- Refresh safely, handle empty or malformed responses, and export a selected .ovpn profile.
-- Add parser unit tests and a CI debug build.
-
-## Milestone 2 — connection control
-
-- Bind to OpenVPN for Android through its documented external AIDL API.
-- Request the external API authorization and Android VPN consent only when the user taps Connect.
-- Start a selected relay from its inline profile and provide Disconnect.
-- Show state received from OpenVPN's callback; surface missing-app, denied-permission, and failed-connection states.
-- Preserve the standalone profile export as a fallback.
-
-## Milestone 3 — reliability and usability
-
-- Add country search/filter, favorites, clear sort choices, and refresh timestamp.
-- Handle stale or unreachable relays and network changes without hiding failure.
-- Make the dependency on OpenVPN for Android clear before connection.
-- Keep VPN credentials and profiles on-device; add no analytics.
-
-## Milestone 4 — validation and release artifact
-
-- CI builds the APK and stores it as a GitHub Actions artifact.
-- Test server selection, profile export, external API permission, VPN permission denial, disconnect, and status callback.
-- Test Wi-Fi/mobile handoff and verify egress IP through the chosen relay on a real Android phone.
-- Ask for phone installation only once the build is ready for that test.
+- CI fetches OpenVPN for Android commit `bd8677a8056290aa444d36f64df037c34a2c2ec6` and initializes its pinned submodules.
+- CI overlays NiceVPN Java sources, parser tests, launcher resources, and manifest entry.
+- CI runs parser unit tests and builds the integrated debug APK.
+- Do not request a phone test until the integrated build passes CI.
+- Then verify on-device: Android VPN consent, VPN Gate connection, VPNBook password/profile, disconnect, and connection-state reporting.
+- Test Wi-Fi/mobile handoff and verify egress IP through the selected relay.
 
 ## Known constraints
 
-VPN Gate listings and relays can change or disappear. Reported line speed and ping are not guarantees. Logging is determined by each relay operator. The OpenVPN tunnel engine is provided by the separate OpenVPN for Android app.
+- VPN Gate listings and relays can change or disappear. Reported speed and ping are not guarantees. Logging is determined by each relay operator.
+- VPNBook is a shared free service; its credentials and servers can change.
+- The integrated engine is GPLv2 with upstream clarifications and exceptions. See `THIRD_PARTY_NOTICES.md` and the pinned upstream `doc/LICENSE.txt`.

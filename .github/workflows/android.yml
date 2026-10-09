@@ -2,9 +2,12 @@ name: Android build
 
 on:
   push:
-    branches: [main]
+    branches: [main, standalone-engine]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -15,18 +18,32 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "9.6.0"
       - uses: android-actions/setup-android@v3
         with:
           packages: "platform-tools"
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-      - name: Run unit tests and assemble debug APK
-        run: gradle :app:testDebugUnitTest :app:assembleDebug
+      - name: Install native build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes swig
+          sdkmanager "platforms;android-37" "build-tools;37.0.0" "ndk;30.0.14904198" "cmake;3.31.1"
+      - name: Fetch pinned OpenVPN for Android engine
+        env:
+          ENGINE_COMMIT: bd8677a8056290aa444d36f64df037c34a2c2ec6
+        run: |
+          git clone https://github.com/schwabe/ics-openvpn.git "$RUNNER_TEMP/ics-openvpn"
+          git -C "$RUNNER_TEMP/ics-openvpn" checkout --detach "$ENGINE_COMMIT"
+          git -C "$RUNNER_TEMP/ics-openvpn" submodule update --init --recursive
+      - name: Build integrated NiceVPN
+        run: |
+          python3 scripts/prepare-standalone.py "$RUNNER_TEMP/ics-openvpn"
+          cd "$RUNNER_TEMP/ics-openvpn"
+          ./gradlew :main:testUiOvpn23DebugUnitTest :main:assembleUiOvpn23Debug
+          apk="$(find main/build/outputs/apk -type f -name '*.apk' -path '*uiOvpn23*' -print -quit)"
+          test -n "$apk"
+          cp "$apk" "$GITHUB_WORKSPACE/NiceVPN-debug.apk"
       - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
         with:
           name: NiceVPN-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: NiceVPN-debug.apk
           if-no-files-found: error
