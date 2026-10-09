@@ -63,7 +63,6 @@ public final class VpnBookConfigFetcher {
             while ((entry = zip.getNextEntry()) != null) {
                 String name = entry.getName().toLowerCase(Locale.ROOT);
                 if (entry.isDirectory() || !name.endsWith(".ovpn")
-                        || !name.contains(server.archiveId.toLowerCase(Locale.ROOT))
                         || !name.contains("tcp443")) {
                     continue;
                 }
@@ -77,10 +76,26 @@ public final class VpnBookConfigFetcher {
                     }
                 }
                 String profile = new String(profileBytes.toByteArray(), StandardCharsets.UTF_8);
-                return inlineCredentials(profile, server.host, password);
+                if (hasExpectedRemote(profile, server.host)) {
+                    return inlineCredentials(profile, server.host, password);
+                }
             }
         }
         throw new IllegalArgumentException("Matching TCP 443 VPNBook profile was not in the archive");
+    }
+
+
+    private static boolean hasExpectedRemote(String profile, String expectedHost) {
+        if (profile == null || expectedHost == null) return false;
+        for (String line : profile.split("\\r?\\n")) {
+            String trimmed = line.trim();
+            if (trimmed.matches("(?i)^remote\\s+"
+                    + java.util.regex.Pattern.quote(expectedHost)
+                    + "\\s+443(?:\\s+.*)?$")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static String inlineCredentials(String profile, String expectedHost, String password) {
