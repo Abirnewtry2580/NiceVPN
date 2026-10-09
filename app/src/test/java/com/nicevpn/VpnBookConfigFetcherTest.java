@@ -29,7 +29,7 @@ public final class VpnBookConfigFetcherTest {
             zip.closeEntry();
         }
 
-        VpnBookServer server = VpnBookServer.available().get(0);
+        VpnBookServer server = VpnBookServer.available().get(0);\n        org.junit.Assert.assertEquals("us1", server.archiveId);
         String configured = VpnBookConfigFetcher.extractProfile(bytes.toByteArray(), server, "samplePass92");
 
         assertTrue(configured.contains("remote us16.vpnbook.com 443"));
