@@ -44,13 +44,16 @@ public final class MainActivity extends Activity {
     private static final String OPENVPN_PACKAGE = "de.blinkt.openvpn";
     private static final String OPENVPN_SERVICE_ACTION = "de.blinkt.openvpn.api.IOpenVPNAPIService";
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor = Executors.newFixedThreadPool(2);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final List<VpnGateServer> servers = new ArrayList<>();
     private LinearLayout content;
     private TextView status;
     private TextView vpnBookCredentialStatus;
     private volatile String vpnBookPassword;
+    private String activeProvider = "chooser";
+    private String pendingInlineConfig;
+    private String pendingConnectionLabel;
     private ProgressBar progress;
     private VpnGateServer pendingExport;
     private VpnGateServer pendingConnect;
@@ -88,8 +91,8 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         buildScreen();
+        showProviderChooser();
         refreshVpnBookPassword();
-        refreshServers();
     }
 
     private void buildScreen() {
@@ -112,6 +115,18 @@ public final class MainActivity extends Activity {
         note.setPadding(0, dp(6), 0, dp(8));
         root.addView(note);
 
+        LinearLayout providerButtons = new LinearLayout(this);
+        providerButtons.setGravity(Gravity.CENTER_VERTICAL);
+        Button vpnGateButton = new Button(this);
+        vpnGateButton.setText("VPN Gate");
+        vpnGateButton.setOnClickListener(v -> showVpnGateProvider());
+        providerButtons.addView(vpnGateButton, new LinearLayout.LayoutParams(0, -2, 1));
+        Button vpnBookButton = new Button(this);
+        vpnBookButton.setText("VPNBook");
+        vpnBookButton.setOnClickListener(v -> showVpnBookProvider());
+        providerButtons.addView(vpnBookButton, new LinearLayout.LayoutParams(0, -2, 1));
+        root.addView(providerButtons);
+
         vpnBookCredentialStatus = new TextView(this);
         vpnBookCredentialStatus.setText("VPNBook password: fetching current password…");
         vpnBookCredentialStatus.setTextSize(12);
@@ -122,14 +137,14 @@ public final class MainActivity extends Activity {
         LinearLayout actions = new LinearLayout(this);
         actions.setGravity(Gravity.CENTER_VERTICAL);
         status = new TextView(this);
-        status.setText("Loading servers…");
+        status.setText("Choose a VPN provider.");
         status.setTextSize(14);
         status.setTextColor(0xFF425563);
         actions.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
 
         Button refresh = new Button(this);
         refresh.setText("Refresh");
-        refresh.setOnClickListener(v -> refreshServers());
+        refresh.setOnClickListener(v -> refreshCurrentProvider());
         actions.addView(refresh);
 
         Button disconnect = new Button(this);
@@ -139,6 +154,7 @@ public final class MainActivity extends Activity {
         root.addView(actions);
 
         progress = new ProgressBar(this);
+        progress.setVisibility(View.GONE);
         root.addView(progress);
 
         ScrollView scroll = new ScrollView(this);
@@ -148,7 +164,7 @@ public final class MainActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         TextView disclaimer = new TextView(this);
-        disclaimer.setText("Connection requires OpenVPN for Android. VPN Gate relays are volunteer-operated; logging policies differ by server.");
+        disclaimer.setText("Connection requires OpenVPN for Android. VPN Gate relays are volunteer-operated; VPNBook is a shared free service.");
         disclaimer.setTextSize(12);
         disclaimer.setTextColor(0xFF6A4B24);
         disclaimer.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -158,18 +174,97 @@ public final class MainActivity extends Activity {
         setContentView(root);
     }
 
+    private void showProviderChooser() {
+        activeProvider = "chooser";
+        status.setText("Choose VPN Gate or VPNBook above.");
+        progress.setVisibility(View.GONE);
+        content.removeAllViews();
+        TextView hint = new TextView(this);
+        hint.setText("Choose a provider to view its servers. VPNBook credentials are refreshed whenever NiceVPN opens.");
+        hint.setTextSize(15);
+        hint.setTextColor(0xFF52616B);
+        hint.setPadding(dp(8), dp(16), dp(8), dp(16));
+        content.addView(hint);
+    }
+
+    private void showVpnGateProvider() {
+        activeProvider = "gate";
+        if (servers.isEmpty()) {
+            refreshServers();
+        } else {
+            showServers(new ArrayList<>(servers));
+        }
+    }
+
+    private void showVpnBookProvider() {
+        activeProvider = "vpnbook";
+        showVpnBookServers();
+    }
+
+    private void refreshCurrentProvider() {
+        if ("vpnbook".equals(activeProvider)) {
+            refreshVpnBookPassword();
+            showVpnBookServers();
+        } else if ("gate".equals(activeProvider)) {
+            refreshServers();
+        } else {
+            showProviderChooser();
+        }
+    }
+
+    private void showVpnBookServers() {
+        progress.setVisibility(View.GONE);
+        content.removeAllViews();
+        List<VpnBookServer> bookServers = VpnBookServer.available();
+        status.setText(bookServers.size() + " VPNBook OpenVPN servers · TCP 443");
+        for (VpnBookServer server : bookServers) {
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(14), dp(12), dp(14), dp(12));
+            card.setBackgroundColor(0xFFFFFFFF);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+            params.setMargins(0, dp(6), 0, dp(6));
+            card.setLayoutParams(params);
+
+            TextView name = new TextView(this);
+            name.setText(server.country + " · " + server.host);
+            name.setTextSize(17);
+            name.setTypeface(null, 1);
+            name.setTextColor(0xFF17384B);
+            card.addView(name);
+
+            TextView details = new TextView(this);
+            details.setText("OpenVPN · TCP 443 · shared free relay");
+            details.setTextSize(13);
+            details.setTextColor(0xFF52616B);
+            details.setPadding(0, dp(5), 0, dp(8));
+            card.addView(details);
+
+            Button connect = new Button(this);
+            connect.setText("Connect with OpenVPN for Android");
+            connect.setEnabled(vpnBookPassword != null);
+            connect.setOnClickListener(v -> connectToVpnBook(server));
+            card.addView(connect);
+            content.addView(card);
+        }
+    }
+
     private void refreshVpnBookPassword() {
         vpnBookCredentialStatus.setText("VPNBook password: fetching current password…");
         executor.execute(() -> {
             try {
                 String password = VpnBookCredentialFetcher.fetchCurrentPassword();
                 vpnBookPassword = password;
-                mainHandler.post(() -> vpnBookCredentialStatus.setText(
-                        "VPNBook password retrieved for this session."));
+                mainHandler.post(() -> {
+                    vpnBookCredentialStatus.setText("VPNBook password retrieved for this session.");
+                    if ("vpnbook".equals(activeProvider)) showVpnBookServers();
+                });
             } catch (Exception error) {
                 vpnBookPassword = null;
-                mainHandler.post(() -> vpnBookCredentialStatus.setText(
-                        "VPNBook password unavailable. Reopen the app while online to retry."));
+                mainHandler.post(() -> {
+                    vpnBookCredentialStatus.setText("VPNBook password unavailable. Check internet and tap Refresh.");
+                    if ("vpnbook".equals(activeProvider)) showVpnBookServers();
+                });
             }
         });
     }
@@ -182,7 +277,12 @@ public final class MainActivity extends Activity {
                 String body = downloadCsv();
                 List<VpnGateServer> result = VpnGateCsvParser.parse(body);
                 result.sort(Comparator.comparingLong((VpnGateServer s) -> s.speedBitsPerSecond).reversed());
-                mainHandler.post(() -> showServers(result));
+                mainHandler.post(() -> {
+                    servers.clear();
+                    servers.addAll(result);
+                    if ("gate".equals(activeProvider)) showServers(result);
+                    else progress.setVisibility(View.GONE);
+                });
             } catch (Exception error) {
                 mainHandler.post(() -> {
                     progress.setVisibility(View.GONE);
@@ -276,12 +376,42 @@ public final class MainActivity extends Activity {
 
     private void connectTo(VpnGateServer server) {
         pendingConnect = server;
+        pendingInlineConfig = null;
+        pendingConnectionLabel = server.country + " relay";
         status.setText("Connecting to OpenVPN for Android…");
+        beginOpenVpnConnection();
+    }
+
+    private void connectToVpnBook(VpnBookServer server) {
+        String password = vpnBookPassword;
+        if (password == null || password.isEmpty()) {
+            status.setText("VPNBook password is not ready. Tap Refresh and try again.");
+            refreshVpnBookPassword();
+            return;
+        }
+        status.setText("Downloading VPNBook profile for " + server.host + "…");
+        executor.execute(() -> {
+            try {
+                String profile = VpnBookConfigFetcher.downloadProfile(server, password);
+                mainHandler.post(() -> {
+                    pendingConnect = null;
+                    pendingInlineConfig = profile;
+                    pendingConnectionLabel = "VPNBook " + server.country;
+                    status.setText("Starting VPNBook " + server.country + " relay…");
+                    beginOpenVpnConnection();
+                });
+            } catch (Exception error) {
+                mainHandler.post(() -> status.setText(
+                        "Could not get a valid VPNBook profile. Check internet and retry."));
+            }
+        });
+    }
+
+    private void beginOpenVpnConnection() {
         if (openVpnService != null) {
             requestVpnPermission();
             return;
         }
-
         Intent serviceIntent = new Intent(OPENVPN_SERVICE_ACTION);
         serviceIntent.setPackage(OPENVPN_PACKAGE);
         try {
@@ -312,7 +442,7 @@ public final class MainActivity extends Activity {
     }
 
     private void requestVpnPermission() {
-        if (openVpnService == null || pendingConnect == null) return;
+        if (openVpnService == null || (pendingConnect == null && pendingInlineConfig == null)) return;
         try {
             Intent consent = openVpnService.prepareVPNService();
             if (consent != null) {
@@ -326,15 +456,21 @@ public final class MainActivity extends Activity {
     }
 
     private void startSelectedServer() {
-        if (openVpnService == null || pendingConnect == null) return;
+        if (openVpnService == null || (pendingConnect == null && pendingInlineConfig == null)) return;
         try {
             if (!callbackRegistered) {
                 openVpnService.registerStatusCallback(statusCallback);
                 callbackRegistered = true;
             }
-            String config = VpnGateCsvParser.decodeProfile(pendingConnect.profileBase64);
-            status.setText("Starting " + pendingConnect.country + " relay…");
+            String config = pendingInlineConfig != null
+                    ? pendingInlineConfig
+                    : VpnGateCsvParser.decodeProfile(pendingConnect.profileBase64);
+            String label = pendingConnectionLabel == null ? "VPN relay" : pendingConnectionLabel;
+            status.setText("Starting " + label + "…");
             openVpnService.startVPN(config);
+            pendingInlineConfig = null;
+            pendingConnect = null;
+            pendingConnectionLabel = null;
         } catch (Exception error) {
             status.setText("OpenVPN could not start this relay.");
             Toast.makeText(this, error.getMessage() == null ? "Could not start VPN" : error.getMessage(), Toast.LENGTH_LONG).show();
@@ -414,6 +550,7 @@ public final class MainActivity extends Activity {
             serviceBound = false;
         }
         vpnBookPassword = null;
+        pendingInlineConfig = null;
         executor.shutdownNow();
         super.onDestroy();
     }
