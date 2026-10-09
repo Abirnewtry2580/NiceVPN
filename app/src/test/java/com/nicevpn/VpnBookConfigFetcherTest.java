@@ -2,10 +2,18 @@ package com.nicevpn;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public final class VpnBookConfigFetcherTest {
+    @Test
+    public void buildsTheCurrentVpnBookArchiveName() {
+        assertEquals(
+                "https://www.vpnbook.com/free-openvpn-account/VPNBook.com-OpenVPN-US1.zip",
+                VpnBookConfigFetcher.configArchiveUrl(VpnBookServer.available().get(0)));
+    }
+
     @Test
     public void injectsCurrentCredentialsAndKeepsSelectedHost() {
         String profile = "client\nremote us16.vpnbook.com 443\n"
