@@ -1,6 +1,7 @@
 package com.nicevpn;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -424,7 +425,22 @@ public final class MainActivity extends Activity {
 
     private void showOpenVpnMissing() {
         status.setText("OpenVPN for Android is required to connect.");
-        Toast.makeText(this, "Install OpenVPN for Android before connecting.", Toast.LENGTH_LONG).show();
+        new AlertDialog.Builder(this)
+                .setTitle("Install OpenVPN for Android")
+                .setMessage("NiceVPN uses OpenVPN for Android as its VPN tunnel engine. Install it, then return to NiceVPN and tap Connect again.")
+                .setPositiveButton("Install", (dialog, which) -> openOpenVpnStorePage())
+                .setNegativeButton("Later", (dialog, which) -> dialog.dismiss())
+                .show();
+    }
+
+    private void openOpenVpnStorePage() {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("market://details?id=" + OPENVPN_PACKAGE)));
+        } catch (RuntimeException noStoreApp) {
+            startActivity(new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://play.google.com/store/apps/details?id=" + OPENVPN_PACKAGE)));
+        }
     }
 
     private void requestOpenVpnApiPermission() {
