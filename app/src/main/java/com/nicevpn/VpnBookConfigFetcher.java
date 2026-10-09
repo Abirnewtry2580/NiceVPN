@@ -22,8 +22,7 @@ public final class VpnBookConfigFetcher {
         if (server == null || password == null || password.trim().isEmpty()) {
             throw new IllegalArgumentException("VPNBook server and current password are required");
         }
-        String url = "https://www.vpnbook.com/free-openvpn-account/vpnbook-openvpn-"
-                + server.archiveId.toLowerCase(Locale.ROOT) + ".zip";
+        String url = configArchiveUrl(server);
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setConnectTimeout(15000);
         connection.setReadTimeout(25000);
@@ -53,6 +52,11 @@ public final class VpnBookConfigFetcher {
         } finally {
             connection.disconnect();
         }
+    }
+
+    static String configArchiveUrl(VpnBookServer server) {
+        return "https://www.vpnbook.com/free-openvpn-account/VPNBook.com-OpenVPN-"
+                + server.archiveId.toUpperCase(Locale.ROOT) + ".zip";
     }
 
     static String extractProfile(byte[] archive, VpnBookServer server, String password)
