@@ -1,6 +1,7 @@
 # Third-party notices
 
-NiceVPN includes AIDL API definitions from the remoteExample project in
+NiceVPN includes external API definitions and the APIVpnProfile Parcelable
+implementation from the remoteExample project in
 [schwabe/ics-openvpn](https://github.com/schwabe/ics-openvpn/tree/master/remoteExample).
 They are used to call the separate OpenVPN for Android app. NiceVPN does not
 bundle the OpenVPN tunnel engine.
