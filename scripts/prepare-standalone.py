@@ -85,18 +85,18 @@ def main() -> None:
     adaptive_dir = res / "mipmap-anydpi-v26"
     adaptive_dir.mkdir(parents=True, exist_ok=True)
     (adaptive_dir / "nicevpn_launcher.xml").write_text(
-        '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\\n'
-        '    <background android:drawable="@color/nicevpn_launcher_background" />\\n'
-        '    <foreground android:drawable="@drawable/nicevpn_launcher_foreground" />\\n'
-        '</adaptive-icon>\\n'
+        '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <background android:drawable="@color/nicevpn_launcher_background" />\n'
+        '    <foreground android:drawable="@drawable/nicevpn_launcher_foreground" />\n'
+        '</adaptive-icon>\n'
     )
     values = res / "values"
     values.mkdir(parents=True, exist_ok=True)
     (values / "nicevpn_resources.xml").write_text(
-        '<resources>\\n'
-        '    <color name="nicevpn_launcher_background">#102B3D</color>\\n'
-        '    <string name="nicevpn_app_name">NiceVPN</string>\\n'
-        '</resources>\\n'
+        '<resources>\n'
+        '    <color name="nicevpn_launcher_background">#102B3D</color>\n'
+        '    <string name="nicevpn_app_name">NiceVPN</string>\n'
+        '</resources>\n'
     )
 
     # Route service binding to this APK and avoid the old companion-app install prompt.
@@ -109,13 +109,13 @@ def main() -> None:
         "bundled service package",
     )
     activity_text, count = re.subn(
-        r"    private void showOpenVpnMissing\\(\\) \\{.*?"
-        r"    private void requestOpenVpnApiPermission\\(\\)",
-        "    private void showOpenVpnMissing() {\\n"
-        "        String message = \"NiceVPN's built-in VPN engine could not be reached. Retry the connection.\";\\n"
-        "        status.setText(message);\\n"
-        "        Toast.makeText(this, message, Toast.LENGTH_LONG).show();\\n"
-        "    }\\n\\n"
+        r"    private void showOpenVpnMissing\(\) \{.*?"
+        r"    private void requestOpenVpnApiPermission\(\)",
+        "    private void showOpenVpnMissing() {\n"
+        "        String message = \"NiceVPN's built-in VPN engine could not be reached. Retry the connection.\";\n"
+        "        status.setText(message);\n"
+        "        Toast.makeText(this, message, Toast.LENGTH_LONG).show();\n"
+        "    }\n\n"
         "    private void requestOpenVpnApiPermission()",
         activity_text,
         count=1,

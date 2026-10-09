@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes swig
-          sdkmanager "platforms;android-37" "build-tools;37.0.0" "ndk;30.0.14904198" "cmake;3.31.1"
+          sdkmanager --channel=3 "platforms;android-37.0" "build-tools;37.0.0" "ndk;30.0.14904198" "cmake;3.31.1"
       - name: Fetch pinned OpenVPN for Android engine
         env:
           ENGINE_COMMIT: bd8677a8056290aa444d36f64df037c34a2c2ec6
