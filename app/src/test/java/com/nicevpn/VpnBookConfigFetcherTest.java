@@ -20,8 +20,8 @@ public final class VpnBookConfigFetcherTest {
 
     @Test
     public void findsRenamedHostByProfileRemoteNotArchiveEntryName() throws Exception {
-        String source = "client\\nremote us16.vpnbook.com 443\\n"
-                + "<ca>\\ncertificate\\n</ca>\\n";
+        String source = "client\nremote us16.vpnbook.com 443\n"
+                + "<ca>\ncertificate\n</ca>\n";
         java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
         try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(bytes)) {
             zip.putNextEntry(new java.util.zip.ZipEntry("vpnbook-openvpn-us1-tcp443.ovpn"));
@@ -29,7 +29,8 @@ public final class VpnBookConfigFetcherTest {
             zip.closeEntry();
         }
 
-        VpnBookServer server = VpnBookServer.available().get(0);\n        org.junit.Assert.assertEquals("us1", server.archiveId);
+        VpnBookServer server = VpnBookServer.available().get(0);
+        org.junit.Assert.assertEquals("us1", server.archiveId);
         String configured = VpnBookConfigFetcher.extractProfile(bytes.toByteArray(), server, "samplePass92");
 
         assertTrue(configured.contains("remote us16.vpnbook.com 443"));
