@@ -109,7 +109,7 @@ public final class MainActivity extends Activity {
         root.addView(title);
 
         TextView note = new TextView(this);
-        note.setText("VPN Gate volunteer relays · select a server to connect");
+        note.setText("Choose a VPN provider, then select a server to connect");
         note.setTextSize(13);
         note.setTextColor(0xFF52616B);
         note.setPadding(0, dp(6), 0, dp(8));

@@ -15,7 +15,7 @@ public final class VpnBookConfigFetcherTest {
 
         assertTrue(configured.contains("<auth-user-pass>\\nvpnbook\\nsamplePass92\\n</auth-user-pass>"));
         assertTrue(configured.contains("<ca>\\ncertificate\\n</ca>"));
-        assertFalse(configured.matches("(?s).*^auth-user-pass$.*"));
+        assertFalse(configured.contains("\\nauth-user-pass\\n"));
     }
 
     @Test(expected = IllegalArgumentException.class)

@@ -84,6 +84,9 @@ public final class VpnBookConfigFetcher {
     }
 
     static String inlineCredentials(String profile, String expectedHost, String password) {
+        if (password == null || !password.matches("[A-Za-z0-9._-]{4,64}")) {
+            throw new IllegalArgumentException("VPNBook password has an unexpected format");
+        }
         if (profile == null || !profile.contains("<ca>") || !profile.contains("</ca>")) {
             throw new IllegalArgumentException("VPNBook profile is missing its certificate");
         }
