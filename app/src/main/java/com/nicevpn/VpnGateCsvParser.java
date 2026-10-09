@@ -1,9 +1,8 @@
 package com.nicevpn;
 
-import android.util.Base64;
-
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 
 final class VpnGateCsvParser {
@@ -22,7 +21,7 @@ final class VpnGateCsvParser {
                 if (line.startsWith(HEADER_PREFIX)) foundHeader = true;
                 continue;
             }
-            if (line.isBlank() || line.startsWith("*")) continue;
+            if (line.trim().isEmpty() || line.startsWith("*")) continue;
 
             List<String> columns = parseRow(line);
             if (columns.size() < 15) continue;
@@ -31,6 +30,7 @@ final class VpnGateCsvParser {
             if (profile.isEmpty()) continue;
 
             try {
+                decodeProfile(profile);
                 servers.add(new VpnGateServer(
                         columns.get(0).trim(),
                         columns.get(1).trim(),
@@ -50,7 +50,7 @@ final class VpnGateCsvParser {
     }
 
     static String decodeProfile(String profileBase64) {
-        byte[] decoded = Base64.decode(profileBase64, Base64.DEFAULT);
+        byte[] decoded = Base64.getMimeDecoder().decode(profileBase64);
         return new String(decoded, StandardCharsets.UTF_8);
     }
 
