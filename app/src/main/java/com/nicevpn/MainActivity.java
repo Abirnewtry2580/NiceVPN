@@ -78,6 +78,9 @@ public final class MainActivity extends Activity {
                 if ("TCP_CONNECT".equalsIgnoreCase(shownState)) {
                     armRelayConnectWatchdog();
                     status.setText("Trying to reach the selected VPN relay…");
+                } else if (isRelayConnectingState(shownState)) {
+                    armRelayConnectWatchdog();
+                    status.setText("Waiting for the selected VPN relay…");
                 } else if ("CONNECTRETRY".equalsIgnoreCase(shownState)) {
                     armRelayConnectWatchdog();
                     status.setText("This relay is not responding. It is retrying; if this continues, disconnect and choose another relay.");
@@ -93,6 +96,16 @@ public final class MainActivity extends Activity {
             });
         }
     };
+
+    private boolean isRelayConnectingState(String state) {
+        return "CONNECTING".equalsIgnoreCase(state)
+                || "WAIT".equalsIgnoreCase(state)
+                || "RESOLVE".equalsIgnoreCase(state)
+                || "AUTH".equalsIgnoreCase(state)
+                || "GET_CONFIG".equalsIgnoreCase(state)
+                || "ASSIGN_IP".equalsIgnoreCase(state)
+                || "UDP_CONNECT".equalsIgnoreCase(state);
+    }
 
     private void armRelayConnectWatchdog() {
         if (relayConnectWatchdogArmed) return;
