@@ -63,6 +63,9 @@ public final class MainActivity extends Activity {
     private boolean callbackRegistered;
     private boolean relayConnectWatchdogArmed;
     private long relayConnectWatchdogGeneration;
+    private VpnGateServer activeGateServer;
+    private final List<String> attemptedGateHosts = new ArrayList<>();
+    private static final int MAX_AUTO_RELAY_RETRIES = 3;
     private static final long RELAY_CONNECT_WARNING_MS = 30_000L;
 
     private final IOpenVPNStatusCallback statusCallback = new IOpenVPNStatusCallback.Stub() {
@@ -95,7 +98,11 @@ public final class MainActivity extends Activity {
         long generation = ++relayConnectWatchdogGeneration;
         mainHandler.postDelayed(() -> {
             if (relayConnectWatchdogArmed && relayConnectWatchdogGeneration == generation) {
-                status.setText("This relay has not responded after 30 seconds. Disconnect and select another relay.");
+                if (activeGateServer != null) {
+                    retryNextVpnGateRelay();
+                } else {
+                    status.setText("This relay has not responded after 30 seconds. Disconnect and select another relay.");
+                }
             }
         }, RELAY_CONNECT_WARNING_MS);
     }
@@ -103,6 +110,51 @@ public final class MainActivity extends Activity {
     private void clearRelayConnectWatchdog() {
         relayConnectWatchdogArmed = false;
         relayConnectWatchdogGeneration++;
+    }
+
+    private void retryNextVpnGateRelay() {
+        if (!"gate".equals(activeProvider)) {
+            clearRelayConnectWatchdog();
+            return;
+        }
+        if (attemptedGateHosts.size() > MAX_AUTO_RELAY_RETRIES) {
+            clearRelayConnectWatchdog();
+            status.setText("Four VPN Gate relays did not respond. Select a different server and retry.");
+            return;
+        }
+
+        VpnGateServer next = null;
+        for (VpnGateServer candidate : servers) {
+            if (!attemptedGateHosts.contains(candidate.host)) {
+                next = candidate;
+                break;
+            }
+        }
+        if (next == null) {
+            clearRelayConnectWatchdog();
+            status.setText("No more VPN Gate relays are available to try. Refresh the list and retry.");
+            return;
+        }
+
+        clearRelayConnectWatchdog();
+        attemptedGateHosts.add(next.host);
+        activeGateServer = next;
+        pendingConnect = next;
+        pendingInlineConfig = null;
+        pendingConnectionLabel = next.country + " relay (automatic retry)";
+        status.setText("This relay did not respond. Automatically trying another VPN Gate relay…");
+
+        try {
+            if (openVpnService != null) openVpnService.disconnect();
+        } catch (RemoteException ignored) {
+            // Continue with the next relay; startVPN replaces any retrying profile.
+        }
+        VpnGateServer selected = next;
+        mainHandler.postDelayed(() -> {
+            if ("gate".equals(activeProvider) && pendingConnect == selected && openVpnService != null) {
+                requestVpnPermission();
+            }
+        }, 1500L);
     }
 
     private final ServiceConnection openVpnConnection = new ServiceConnection() {
@@ -409,6 +461,9 @@ public final class MainActivity extends Activity {
 
     private void connectTo(VpnGateServer server) {
         clearRelayConnectWatchdog();
+        attemptedGateHosts.clear();
+        attemptedGateHosts.add(server.host);
+        activeGateServer = server;
         pendingConnect = server;
         pendingInlineConfig = null;
         pendingConnectionLabel = server.country + " relay";
@@ -418,6 +473,8 @@ public final class MainActivity extends Activity {
 
     private void connectToVpnBook(VpnBookServer server) {
         clearRelayConnectWatchdog();
+        activeGateServer = null;
+        attemptedGateHosts.clear();
         String password = vpnBookPassword;
         if (password == null || password.isEmpty()) {
             status.setText("VPNBook password is not ready. Tap Refresh and try again.");
@@ -533,6 +590,8 @@ public final class MainActivity extends Activity {
 
     private void disconnectVpn() {
         clearRelayConnectWatchdog();
+        activeGateServer = null;
+        attemptedGateHosts.clear();
         if (openVpnService == null) {
             status.setText("No VPN connection is active.");
             return;
