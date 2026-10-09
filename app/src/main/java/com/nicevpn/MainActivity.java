@@ -158,8 +158,7 @@ public final class MainActivity extends Activity {
 
         int count = Math.min(result.size(), 100);
         for (int i = 0; i < count; i++) {
-            VpnGateServer server = result.get(i);
-            content.addView(serverCard(server));
+            content.addView(serverCard(result.get(i)));
         }
     }
 
@@ -226,7 +225,7 @@ public final class MainActivity extends Activity {
     }
 
     private String display(String value, String fallback) {
-        return value == null || value.isBlank() || value.equals("-") ? fallback : value;
+        return value == null || value.trim().isEmpty() || value.equals("-") ? fallback : value;
     }
 
     private int dp(int value) {
