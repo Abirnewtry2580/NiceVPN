@@ -42,7 +42,6 @@ jobs:
           test -n "$apk"
           cp "$apk" "$GITHUB_WORKSPACE/NiceVPN-debug.apk"
       - uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
         with:
           name: NiceVPN-debug-apk
           path: NiceVPN-debug.apk
