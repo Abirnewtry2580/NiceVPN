@@ -1,11 +1,16 @@
 package com.nicevpn;
 
 import android.app.Activity;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
+import android.os.RemoteException;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -14,6 +19,9 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import de.blinkt.openvpn.api.IOpenVPNAPIService;
+import de.blinkt.openvpn.api.IOpenVPNStatusCallback;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -30,7 +38,11 @@ import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final int CREATE_PROFILE_REQUEST = 41;
+    private static final int REQUEST_API_PERMISSION = 42;
+    private static final int REQUEST_VPN_PERMISSION = 43;
     private static final String API_URL = "https://www.vpngate.net/api/iphone/";
+    private static final String OPENVPN_PACKAGE = "de.blinkt.openvpn";
+    private static final String OPENVPN_SERVICE_ACTION = "de.blinkt.openvpn.api.IOpenVPNAPIService";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -39,6 +51,36 @@ public final class MainActivity extends Activity {
     private TextView status;
     private ProgressBar progress;
     private VpnGateServer pendingExport;
+    private VpnGateServer pendingConnect;
+    private IOpenVPNAPIService openVpnService;
+    private boolean serviceBound;
+    private boolean callbackRegistered;
+
+    private final IOpenVPNStatusCallback statusCallback = new IOpenVPNStatusCallback.Stub() {
+        @Override
+        public void newStatus(String uuid, String state, String message, String level) {
+            mainHandler.post(() -> {
+                String shownState = state == null || state.trim().isEmpty() ? "unknown" : state;
+                status.setText("OpenVPN status: " + shownState
+                        + (message == null || message.trim().isEmpty() ? "" : " · " + message));
+            });
+        }
+    };
+
+    private final ServiceConnection openVpnConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder binder) {
+            openVpnService = IOpenVPNAPIService.Stub.asInterface(binder);
+            requestOpenVpnApiPermission();
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            openVpnService = null;
+            callbackRegistered = false;
+            status.setText("OpenVPN client disconnected");
+        }
+    };
 
     @Override
     protected void onCreate(Bundle state) {
@@ -61,10 +103,10 @@ public final class MainActivity extends Activity {
         root.addView(title);
 
         TextView note = new TextView(this);
-        note.setText("VPN Gate volunteer relays · choose a server and export its OpenVPN profile");
+        note.setText("VPN Gate volunteer relays · select a server to connect");
         note.setTextSize(13);
         note.setTextColor(0xFF52616B);
-        note.setPadding(0, dp(6), 0, dp(12));
+        note.setPadding(0, dp(6), 0, dp(8));
         root.addView(note);
 
         LinearLayout actions = new LinearLayout(this);
@@ -79,6 +121,11 @@ public final class MainActivity extends Activity {
         refresh.setText("Refresh");
         refresh.setOnClickListener(v -> refreshServers());
         actions.addView(refresh);
+
+        Button disconnect = new Button(this);
+        disconnect.setText("Disconnect");
+        disconnect.setOnClickListener(v -> disconnectVpn());
+        actions.addView(disconnect);
         root.addView(actions);
 
         progress = new ProgressBar(this);
@@ -91,7 +138,7 @@ public final class MainActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         TextView disclaimer = new TextView(this);
-        disclaimer.setText("This first build does not create a VPN tunnel. Relay operators may log traffic; policies differ by server.");
+        disclaimer.setText("Connection requires OpenVPN for Android. VPN Gate relays are volunteer-operated; logging policies differ by server.");
         disclaimer.setTextSize(12);
         disclaimer.setTextColor(0xFF6A4B24);
         disclaimer.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -189,26 +236,111 @@ public final class MainActivity extends Activity {
         details.setPadding(0, dp(5), 0, dp(8));
         card.addView(details);
 
+        Button connect = new Button(this);
+        connect.setText("Connect with OpenVPN for Android");
+        connect.setOnClickListener(v -> connectTo(server));
+        card.addView(connect);
+
         Button export = new Button(this);
-        export.setText("Save OpenVPN profile");
+        export.setText("Save profile only");
         export.setOnClickListener(v -> saveProfile(server));
         card.addView(export);
         return card;
     }
 
-    private void saveProfile(VpnGateServer server) {
-        pendingExport = server;
-        String fileName = server.countryCode + "-" + server.host + ".ovpn";
-        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("application/x-openvpn-profile");
-        intent.putExtra(Intent.EXTRA_TITLE, fileName.replaceAll("[^A-Za-z0-9._-]", "_"));
-        startActivityForResult(intent, CREATE_PROFILE_REQUEST);
+    private void connectTo(VpnGateServer server) {
+        pendingConnect = server;
+        status.setText("Connecting to OpenVPN for Android…");
+        if (openVpnService != null) {
+            requestVpnPermission();
+            return;
+        }
+
+        Intent serviceIntent = new Intent(OPENVPN_SERVICE_ACTION);
+        serviceIntent.setPackage(OPENVPN_PACKAGE);
+        try {
+            serviceBound = bindService(serviceIntent, openVpnConnection, Context.BIND_AUTO_CREATE);
+            if (!serviceBound) showOpenVpnMissing();
+        } catch (RuntimeException error) {
+            showOpenVpnMissing();
+        }
+    }
+
+    private void showOpenVpnMissing() {
+        status.setText("OpenVPN for Android is required to connect.");
+        Toast.makeText(this, "Install OpenVPN for Android before connecting.", Toast.LENGTH_LONG).show();
+    }
+
+    private void requestOpenVpnApiPermission() {
+        if (openVpnService == null) return;
+        try {
+            Intent consent = openVpnService.prepare(getPackageName());
+            if (consent != null) {
+                startActivityForResult(consent, REQUEST_API_PERMISSION);
+            } else {
+                requestVpnPermission();
+            }
+        } catch (RemoteException error) {
+            status.setText("Could not request OpenVPN client permission.");
+        }
+    }
+
+    private void requestVpnPermission() {
+        if (openVpnService == null || pendingConnect == null) return;
+        try {
+            Intent consent = openVpnService.prepareVPNService();
+            if (consent != null) {
+                startActivityForResult(consent, REQUEST_VPN_PERMISSION);
+            } else {
+                startSelectedServer();
+            }
+        } catch (RemoteException error) {
+            status.setText("Could not request Android VPN permission.");
+        }
+    }
+
+    private void startSelectedServer() {
+        if (openVpnService == null || pendingConnect == null) return;
+        try {
+            if (!callbackRegistered) {
+                openVpnService.registerStatusCallback(statusCallback);
+                callbackRegistered = true;
+            }
+            String config = VpnGateCsvParser.decodeProfile(pendingConnect.profileBase64);
+            status.setText("Starting " + pendingConnect.country + " relay…");
+            openVpnService.startVPN(config);
+        } catch (Exception error) {
+            status.setText("OpenVPN could not start this relay.");
+            Toast.makeText(this, error.getMessage() == null ? "Could not start VPN" : error.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void disconnectVpn() {
+        if (openVpnService == null) {
+            status.setText("Connect to OpenVPN for Android first.");
+            return;
+        }
+        try {
+            openVpnService.disconnect();
+            status.setText("Disconnect requested");
+        } catch (RemoteException error) {
+            status.setText("Could not disconnect OpenVPN.");
+        }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_API_PERMISSION) {
+            if (resultCode == RESULT_OK) requestVpnPermission();
+            else status.setText("OpenVPN client permission was not granted.");
+            return;
+        }
+        if (requestCode == REQUEST_VPN_PERMISSION) {
+            if (resultCode == RESULT_OK) startSelectedServer();
+            else status.setText("Android VPN permission was not granted.");
+            return;
+        }
         if (requestCode != CREATE_PROFILE_REQUEST || resultCode != RESULT_OK || data == null || pendingExport == null) return;
         Uri uri = data.getData();
         if (uri == null) return;
@@ -224,6 +356,16 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void saveProfile(VpnGateServer server) {
+        pendingExport = server;
+        String fileName = server.countryCode + "-" + server.host + ".ovpn";
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/x-openvpn-profile");
+        intent.putExtra(Intent.EXTRA_TITLE, fileName.replaceAll("[^A-Za-z0-9._-]", "_"));
+        startActivityForResult(intent, CREATE_PROFILE_REQUEST);
+    }
+
     private String display(String value, String fallback) {
         return value == null || value.trim().isEmpty() || value.equals("-") ? fallback : value;
     }
@@ -234,6 +376,17 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (openVpnService != null && callbackRegistered) {
+            try {
+                openVpnService.unregisterStatusCallback(statusCallback);
+            } catch (RemoteException ignored) {
+                // The remote app may have stopped.
+            }
+        }
+        if (serviceBound) {
+            unbindService(openVpnConnection);
+            serviceBound = false;
+        }
         executor.shutdownNow();
         super.onDestroy();
     }
