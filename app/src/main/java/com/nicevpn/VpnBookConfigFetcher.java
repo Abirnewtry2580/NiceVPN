@@ -19,6 +19,11 @@ public final class VpnBookConfigFetcher {
     }
 
     public static String downloadProfile(VpnBookServer server, String password) throws Exception {
+        return downloadProfile(server, password, true);
+    }
+
+    static String downloadProfile(VpnBookServer server, String password, boolean preferUdp)
+            throws Exception {
         if (server == null || password == null || password.trim().isEmpty()) {
             throw new IllegalArgumentException("VPNBook server and current password are required");
         }
@@ -48,7 +53,7 @@ public final class VpnBookConfigFetcher {
                 }
                 archive = output.toByteArray();
             }
-            return extractProfile(archive, server, password);
+            return extractProfile(archive, server, password, preferUdp);
         } finally {
             connection.disconnect();
         }
@@ -61,13 +66,21 @@ public final class VpnBookConfigFetcher {
 
     static String extractProfile(byte[] archive, VpnBookServer server, String password)
             throws Exception {
+        return extractProfile(archive, server, password, true);
+    }
+
+    static String extractProfile(
+            byte[] archive, VpnBookServer server, String password, boolean preferUdp)
+            throws Exception {
+        String bestProfile = null;
+        int bestPriority = Integer.MAX_VALUE;
         try (ZipInputStream zip = new ZipInputStream(
                 new java.io.ByteArrayInputStream(archive), StandardCharsets.UTF_8)) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 String name = entry.getName().toLowerCase(Locale.ROOT);
-                if (entry.isDirectory() || !name.endsWith(".ovpn")
-                        || !name.contains("tcp443")) {
+                int priority = profilePriority(name, preferUdp);
+                if (entry.isDirectory() || !name.endsWith(".ovpn") || priority >= bestPriority) {
                     continue;
                 }
                 ByteArrayOutputStream profileBytes = new ByteArrayOutputStream();
@@ -80,22 +93,48 @@ public final class VpnBookConfigFetcher {
                     }
                 }
                 String profile = new String(profileBytes.toByteArray(), StandardCharsets.UTF_8);
-                if (hasExpectedRemote(profile, server.host)) {
-                    return inlineCredentials(profile, server.host, password);
+                int port = profilePort(name);
+                if (hasExpectedRemote(profile, server.host, port)) {
+                    bestProfile = profile;
+                    bestPriority = priority;
                 }
             }
         }
-        throw new IllegalArgumentException("Matching TCP 443 VPNBook profile was not in the archive");
+        if (bestProfile == null) {
+            throw new IllegalArgumentException("Matching VPNBook profile was not in the archive");
+        }
+        return inlineCredentials(bestProfile, server.host, password);
     }
 
+    private static int profilePriority(String name, boolean preferUdp) {
+        if (preferUdp) {
+            if (name.contains("udp25000")) return 0;
+            if (name.contains("udp53")) return 1;
+            if (name.contains("tcp443")) return 2;
+            if (name.contains("tcp80")) return 3;
+        } else {
+            if (name.contains("tcp443")) return 0;
+            if (name.contains("udp25000")) return 1;
+            if (name.contains("udp53")) return 2;
+            if (name.contains("tcp80")) return 3;
+        }
+        return Integer.MAX_VALUE;
+    }
 
-    private static boolean hasExpectedRemote(String profile, String expectedHost) {
+    private static int profilePort(String name) {
+        if (name.contains("udp25000")) return 25000;
+        if (name.contains("udp53")) return 53;
+        if (name.contains("tcp80")) return 80;
+        return 443;
+    }
+
+    private static boolean hasExpectedRemote(String profile, String expectedHost, int expectedPort) {
         if (profile == null || expectedHost == null) return false;
         for (String line : profile.split("\\r?\\n")) {
             String trimmed = line.trim();
             if (trimmed.matches("(?i)^remote\\s+"
                     + java.util.regex.Pattern.quote(expectedHost)
-                    + "\\s+443(?:\\s+.*)?$")) {
+                    + "\\s+" + expectedPort + "(?:\\s+.*)?$")) {
                 return true;
             }
         }
@@ -113,7 +152,7 @@ public final class VpnBookConfigFetcher {
         for (String line : profile.split("\\r?\\n")) {
             String trimmed = line.trim();
             if (trimmed.matches("(?i)^remote\\s+" + java.util.regex.Pattern.quote(expectedHost)
-                    + "\\s+443(?:\\s+.*)?$")) {
+                    + "\\s+(?:53|80|443|25000)(?:\\s+.*)?$")) {
                 expectedRemote = true;
                 break;
             }

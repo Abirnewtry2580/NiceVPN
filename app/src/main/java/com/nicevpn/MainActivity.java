@@ -64,6 +64,8 @@ public final class MainActivity extends Activity {
     private boolean relayConnectWatchdogArmed;
     private long relayConnectWatchdogGeneration;
     private VpnGateServer activeGateServer;
+    private VpnBookServer activeVpnBookServer;
+    private boolean vpnBookTcpFallbackAttempted;
     private final List<String> attemptedGateHosts = new ArrayList<>();
     private static final int MAX_AUTO_RELAY_RETRIES = 3;
     private static final long RELAY_CONNECT_WARNING_MS = 30_000L;
@@ -100,6 +102,9 @@ public final class MainActivity extends Activity {
             if (relayConnectWatchdogArmed && relayConnectWatchdogGeneration == generation) {
                 if (activeGateServer != null) {
                     retryNextVpnGateRelay();
+                } else if ("vpnbook".equals(activeProvider)
+                        && activeVpnBookServer != null && !vpnBookTcpFallbackAttempted) {
+                    retryVpnBookWithTcp();
                 } else {
                     status.setText("This relay has not responded after 30 seconds. Disconnect and select another relay.");
                 }
@@ -155,6 +160,42 @@ public final class MainActivity extends Activity {
                 requestVpnPermission();
             }
         }, 1500L);
+    }
+
+    private void retryVpnBookWithTcp() {
+        VpnBookServer server = activeVpnBookServer;
+        String password = vpnBookPassword;
+        if (server == null || password == null || vpnBookTcpFallbackAttempted) {
+            clearRelayConnectWatchdog();
+            status.setText("VPNBook relay did not respond. Disconnect and try another server.");
+            return;
+        }
+        clearRelayConnectWatchdog();
+        vpnBookTcpFallbackAttempted = true;
+        status.setText("UDP 25000 did not respond. Retrying this server with TCP 443…");
+        try {
+            if (openVpnService != null) openVpnService.disconnect();
+        } catch (RemoteException ignored) {
+            // Continue with TCP; startVPN replaces the retrying profile.
+        }
+        executor.execute(() -> {
+            try {
+                String profile = VpnBookConfigFetcher.downloadProfile(server, password, false);
+                mainHandler.post(() -> {
+                    if (!"vpnbook".equals(activeProvider) || activeVpnBookServer != server) return;
+                    pendingConnect = null;
+                    pendingInlineConfig = profile;
+                    pendingConnectionLabel = "VPNBook " + server.country + " (TCP 443 fallback)";
+                    status.setText("Starting VPNBook TCP 443 fallback…");
+                    requestVpnPermission();
+                });
+            } catch (Exception error) {
+                String reason = error.getMessage() == null
+                        ? error.getClass().getSimpleName() : error.getMessage();
+                String failure = reason;
+                mainHandler.post(() -> status.setText("VPNBook UDP and TCP profiles failed: " + failure));
+            }
+        });
     }
 
     private final ServiceConnection openVpnConnection = new ServiceConnection() {
@@ -461,6 +502,8 @@ public final class MainActivity extends Activity {
 
     private void connectTo(VpnGateServer server) {
         clearRelayConnectWatchdog();
+        activeVpnBookServer = null;
+        vpnBookTcpFallbackAttempted = false;
         attemptedGateHosts.clear();
         attemptedGateHosts.add(server.host);
         activeGateServer = server;
@@ -474,6 +517,8 @@ public final class MainActivity extends Activity {
     private void connectToVpnBook(VpnBookServer server) {
         clearRelayConnectWatchdog();
         activeGateServer = null;
+        activeVpnBookServer = server;
+        vpnBookTcpFallbackAttempted = false;
         attemptedGateHosts.clear();
         String password = vpnBookPassword;
         if (password == null || password.isEmpty()) {
@@ -481,14 +526,14 @@ public final class MainActivity extends Activity {
             refreshVpnBookPassword();
             return;
         }
-        status.setText("Downloading VPNBook profile for " + server.host + "…");
+        status.setText("Downloading fast UDP 25000 profile for " + server.host + "…");
         executor.execute(() -> {
             try {
                 String profile = VpnBookConfigFetcher.downloadProfile(server, password);
                 mainHandler.post(() -> {
                     pendingConnect = null;
                     pendingInlineConfig = profile;
-                    pendingConnectionLabel = "VPNBook " + server.country;
+                    pendingConnectionLabel = "VPNBook " + server.country + " (UDP 25000)";
                     status.setText("Starting VPNBook " + server.country + " relay…");
                     beginOpenVpnConnection();
                 });
@@ -591,6 +636,8 @@ public final class MainActivity extends Activity {
     private void disconnectVpn() {
         clearRelayConnectWatchdog();
         activeGateServer = null;
+        activeVpnBookServer = null;
+        vpnBookTcpFallbackAttempted = false;
         attemptedGateHosts.clear();
         if (openVpnService == null) {
             status.setText("No VPN connection is active.");
