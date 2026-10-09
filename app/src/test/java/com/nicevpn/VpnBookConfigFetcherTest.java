@@ -18,6 +18,24 @@ public final class VpnBookConfigFetcherTest {
         assertFalse(configured.contains("\nauth-user-pass\n"));
     }
 
+    @Test
+    public void findsRenamedHostByProfileRemoteNotArchiveEntryName() throws Exception {
+        String source = "client\\nremote us16.vpnbook.com 443\\n"
+                + "<ca>\\ncertificate\\n</ca>\\n";
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(bytes)) {
+            zip.putNextEntry(new java.util.zip.ZipEntry("vpnbook-openvpn-us1-tcp443.ovpn"));
+            zip.write(source.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+
+        VpnBookServer server = VpnBookServer.available().get(0);
+        String configured = VpnBookConfigFetcher.extractProfile(bytes.toByteArray(), server, "samplePass92");
+
+        assertTrue(configured.contains("remote us16.vpnbook.com 443"));
+        assertTrue(configured.contains("samplePass92"));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsProfileForAnotherServer() {
         VpnBookConfigFetcher.inlineCredentials(
