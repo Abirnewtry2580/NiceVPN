@@ -61,6 +61,9 @@ public final class MainActivity extends Activity {
     private IOpenVPNAPIService openVpnService;
     private boolean serviceBound;
     private boolean callbackRegistered;
+    private boolean relayConnectWatchdogArmed;
+    private long relayConnectWatchdogGeneration;
+    private static final long RELAY_CONNECT_WARNING_MS = 30_000L;
 
     private final IOpenVPNStatusCallback statusCallback = new IOpenVPNStatusCallback.Stub() {
         @Override
@@ -68,19 +71,39 @@ public final class MainActivity extends Activity {
             mainHandler.post(() -> {
                 String shownState = state == null || state.trim().isEmpty() ? "unknown" : state;
                 if ("TCP_CONNECT".equalsIgnoreCase(shownState)) {
+                    armRelayConnectWatchdog();
                     status.setText("Trying to reach the selected VPN relay…");
                 } else if ("CONNECTRETRY".equalsIgnoreCase(shownState)) {
+                    armRelayConnectWatchdog();
                     status.setText("This relay is not responding. It is retrying; if this continues, disconnect and choose another relay.");
                 } else if ("CONNECTED".equalsIgnoreCase(shownState)) {
+                    clearRelayConnectWatchdog();
                     status.setText("VPN connected"
                             + (message == null || message.trim().isEmpty() ? "" : " · " + message));
                 } else {
+                    clearRelayConnectWatchdog();
                     status.setText("VPN status: " + shownState
                             + (message == null || message.trim().isEmpty() ? "" : " · " + message));
                 }
             });
         }
     };
+
+    private void armRelayConnectWatchdog() {
+        if (relayConnectWatchdogArmed) return;
+        relayConnectWatchdogArmed = true;
+        long generation = ++relayConnectWatchdogGeneration;
+        mainHandler.postDelayed(() -> {
+            if (relayConnectWatchdogArmed && relayConnectWatchdogGeneration == generation) {
+                status.setText("This relay has not responded after 30 seconds. Disconnect and select another relay.");
+            }
+        }, RELAY_CONNECT_WARNING_MS);
+    }
+
+    private void clearRelayConnectWatchdog() {
+        relayConnectWatchdogArmed = false;
+        relayConnectWatchdogGeneration++;
+    }
 
     private final ServiceConnection openVpnConnection = new ServiceConnection() {
         @Override
@@ -385,6 +408,7 @@ public final class MainActivity extends Activity {
     }
 
     private void connectTo(VpnGateServer server) {
+        clearRelayConnectWatchdog();
         pendingConnect = server;
         pendingInlineConfig = null;
         pendingConnectionLabel = server.country + " relay";
@@ -393,6 +417,7 @@ public final class MainActivity extends Activity {
     }
 
     private void connectToVpnBook(VpnBookServer server) {
+        clearRelayConnectWatchdog();
         String password = vpnBookPassword;
         if (password == null || password.isEmpty()) {
             status.setText("VPNBook password is not ready. Tap Refresh and try again.");
@@ -494,6 +519,7 @@ public final class MainActivity extends Activity {
                     ? pendingInlineConfig
                     : VpnGateCsvParser.decodeProfile(pendingConnect.profileBase64);
             String label = pendingConnectionLabel == null ? "VPN relay" : pendingConnectionLabel;
+            clearRelayConnectWatchdog();
             status.setText("Starting " + label + "…");
             openVpnService.startVPN(config);
             pendingInlineConfig = null;
@@ -506,6 +532,7 @@ public final class MainActivity extends Activity {
     }
 
     private void disconnectVpn() {
+        clearRelayConnectWatchdog();
         if (openVpnService == null) {
             status.setText("No VPN connection is active.");
             return;
