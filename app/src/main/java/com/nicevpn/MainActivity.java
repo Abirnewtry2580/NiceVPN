@@ -766,7 +766,7 @@ public final class MainActivity extends Activity {
             canvas.drawCircle(cx, cy, radius, paint);
             paint.setShader(null);
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(1.4f));
+            paint.setStrokeWidth(dp(1) + getResources().getDisplayMetrics().density * 0.4f);
             paint.setColor(0xFF9DDCF0);
             canvas.drawCircle(cx, cy, radius, paint);
 
