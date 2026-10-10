@@ -47,6 +47,30 @@ def main() -> None:
     )
     app_build.write_text(build_text)
 
+    # Restrict native engine binaries to the user's 64-bit ARM phone.
+    build_text = replace_once(
+        app_build.read_text(),
+        "    /* Disable due to https://issuetracker.google.com/issues/402800800 */\n"
+        "    splits {\n"
+        "        abi {\n"
+        "            isEnable = false\n"
+        "            reset()\n"
+        "            include(\"x86\", \"x86_64\", \"armeabi-v7a\", \"arm64-v8a\")\n"
+        "            isUniversalApk = true\n"
+        "        }\n"
+        "    }\n",
+        "    splits {\n"
+        "        abi {\n"
+        "            isEnable = true\n"
+        "            reset()\n"
+        "            include(\"arm64-v8a\")\n"
+        "            isUniversalApk = false\n"
+        "        }\n"
+        "    }\n",
+        "64-bit ARM-only APK",
+    )
+    app_build.write_text(build_text)
+
     # This narrowly permits the bundled app to call its own AIDL service.
     # Calls from other package UIDs still need the upstream allow-list approval.
     external_db = engine / "main/src/main/java/de/blinkt/openvpn/api/ExternalAppDatabase.java"
