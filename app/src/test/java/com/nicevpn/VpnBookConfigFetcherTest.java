@@ -8,9 +8,9 @@ import static org.junit.Assert.assertTrue;
 
 public final class VpnBookConfigFetcherTest {
     @Test
-    public void buildsTheCurrentVpnBookArchiveName() {
+    public void buildsTheCurrentVpnBookArchiveNameFromCurrentServerSlug() {
         assertEquals(
-                "https://www.vpnbook.com/free-openvpn-account/VPNBook.com-OpenVPN-US1.zip",
+                "https://www.vpnbook.com/free-openvpn-account/vpnbook-openvpn-us16.zip",
                 VpnBookConfigFetcher.configArchiveUrl(VpnBookServer.available().get(0)));
     }
 
@@ -38,7 +38,7 @@ public final class VpnBookConfigFetcherTest {
         }
 
         VpnBookServer server = VpnBookServer.available().get(0);
-        org.junit.Assert.assertEquals("us1", server.archiveId);
+        org.junit.Assert.assertEquals("us16", server.archiveId);
         String configured = VpnBookConfigFetcher.extractProfile(bytes.toByteArray(), server, "samplePass92");
 
         assertTrue(configured.contains("remote us16.vpnbook.com 443"));
