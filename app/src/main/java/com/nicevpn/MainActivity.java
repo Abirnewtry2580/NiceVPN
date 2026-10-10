@@ -990,6 +990,10 @@ public final class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    private float dp(float value) {
+        return value * getResources().getDisplayMetrics().density;
+    }
+
     @Override
     protected void onDestroy() {
         if (openVpnService != null && callbackRegistered) {
