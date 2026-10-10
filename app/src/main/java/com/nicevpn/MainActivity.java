@@ -1,6 +1,13 @@
 package com.nicevpn;
 
 import android.app.Activity;
+import android.content.res.ColorStateList;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RadialGradient;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Context;
@@ -51,6 +58,13 @@ public final class MainActivity extends Activity {
     private LinearLayout content;
     private TextView status;
     private TextView vpnBookCredentialStatus;
+    private TextView providerSelection;
+    private Button vpnGateButton;
+    private Button vpnBookButton;
+    private Button connectButton;
+    private GlobeView globe;
+    private VpnGateServer selectedGateServer;
+    private VpnBookServer selectedVpnBookServer;
     private volatile String vpnBookPassword;
     private String activeProvider = "chooser";
     private String pendingInlineConfig;
@@ -75,27 +89,30 @@ public final class MainActivity extends Activity {
         public void newStatus(String uuid, String state, String message, String level) {
             mainHandler.post(() -> {
                 String shownState = state == null || state.trim().isEmpty() ? "unknown" : state;
-                if ("TCP_CONNECT".equalsIgnoreCase(shownState)) {
+                if ("TCP_CONNECT".equalsIgnoreCase(shownState)
+                        || isRelayConnectingState(shownState)
+                        || "CONNECTRETRY".equalsIgnoreCase(shownState)) {
+                    globe.setSpinning(true);
                     armRelayConnectWatchdog();
-                    status.setText("Trying to reach the selected VPN relay…");
-                } else if (isRelayConnectingState(shownState)) {
-                    armRelayConnectWatchdog();
-                    status.setText("Waiting for the selected VPN relay…");
-                } else if ("CONNECTRETRY".equalsIgnoreCase(shownState)) {
-                    armRelayConnectWatchdog();
-                    status.setText("This relay is not responding. It is retrying; if this continues, disconnect and choose another relay.");
+                    status.setText("Connecting through " + providerName() + "…");
                 } else if ("CONNECTED".equalsIgnoreCase(shownState)) {
                     clearRelayConnectWatchdog();
-                    status.setText("VPN connected"
-                            + (message == null || message.trim().isEmpty() ? "" : " · " + message));
+                    String country = activeCountry();
+                    globe.setConnectedCountry(country);
+                    status.setText("Connected · " + country);
                 } else {
                     clearRelayConnectWatchdog();
-                    status.setText("VPN status: " + shownState
-                            + (message == null || message.trim().isEmpty() ? "" : " · " + message));
+                    if ("EXITING".equalsIgnoreCase(shownState) || "NOPROCESS".equalsIgnoreCase(shownState)) {
+                        globe.clearConnection();
+                        status.setText("Disconnected");
+                    } else {
+                        status.setText("VPN status: " + shownState);
+                    }
                 }
             });
         }
     };
+
 
     private boolean isRelayConnectingState(String state) {
         return "CONNECTING".equalsIgnoreCase(state)
@@ -248,45 +265,62 @@ public final class MainActivity extends Activity {
         root.addView(title);
 
         TextView note = new TextView(this);
-        note.setText("Choose a VPN provider, then select a server to connect");
-        note.setTextSize(13);
+        note.setText("Select a provider, then connect");
+        note.setTextSize(14);
         note.setTextColor(0xFF52616B);
-        note.setPadding(0, dp(6), 0, dp(8));
+        note.setPadding(0, dp(6), 0, dp(10));
         root.addView(note);
 
-        LinearLayout providerButtons = new LinearLayout(this);
-        providerButtons.setGravity(Gravity.CENTER_VERTICAL);
-        Button vpnGateButton = new Button(this);
+        LinearLayout providers = new LinearLayout(this);
+        providers.setGravity(Gravity.CENTER_VERTICAL);
+        vpnGateButton = new Button(this);
         vpnGateButton.setText("VPN Gate");
         vpnGateButton.setOnClickListener(v -> showVpnGateProvider());
-        providerButtons.addView(vpnGateButton, new LinearLayout.LayoutParams(0, -2, 1));
-        Button vpnBookButton = new Button(this);
+        providers.addView(vpnGateButton, new LinearLayout.LayoutParams(0, -2, 1));
+        vpnBookButton = new Button(this);
         vpnBookButton.setText("VPNBook");
         vpnBookButton.setOnClickListener(v -> showVpnBookProvider());
-        providerButtons.addView(vpnBookButton, new LinearLayout.LayoutParams(0, -2, 1));
-        root.addView(providerButtons);
+        providers.addView(vpnBookButton, new LinearLayout.LayoutParams(0, -2, 1));
+        root.addView(providers);
+
+        providerSelection = new TextView(this);
+        providerSelection.setText("Choose VPN Gate or VPNBook");
+        providerSelection.setTextSize(14);
+        providerSelection.setTypeface(null, 1);
+        providerSelection.setTextColor(0xFF17384B);
+        providerSelection.setPadding(0, dp(8), 0, dp(4));
+        root.addView(providerSelection);
 
         vpnBookCredentialStatus = new TextView(this);
         vpnBookCredentialStatus.setText("VPNBook password: fetching current password…");
         vpnBookCredentialStatus.setTextSize(12);
         vpnBookCredentialStatus.setTextColor(0xFF52616B);
-        vpnBookCredentialStatus.setPadding(0, 0, 0, dp(8));
+        vpnBookCredentialStatus.setVisibility(View.GONE);
         root.addView(vpnBookCredentialStatus);
 
+        globe = new GlobeView();
+        root.addView(globe, new LinearLayout.LayoutParams(-1, dp(250)));
+
         status = new TextView(this);
-        status.setText("Choose a VPN provider.");
-        status.setTextSize(14);
+        status.setText("Choose a provider to begin");
+        status.setTextSize(15);
+        status.setGravity(Gravity.CENTER);
         status.setTextColor(0xFF425563);
-        status.setPadding(0, dp(8), 0, dp(4));
+        status.setPadding(dp(8), dp(4), dp(8), dp(8));
         root.addView(status, new LinearLayout.LayoutParams(-1, -2));
 
+        connectButton = new Button(this);
+        connectButton.setText("Connect");
+        connectButton.setEnabled(false);
+        connectButton.setOnClickListener(v -> connectSelectedProvider());
+        root.addView(connectButton, new LinearLayout.LayoutParams(-1, -2));
+
         LinearLayout actions = new LinearLayout(this);
-        actions.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        actions.setGravity(Gravity.CENTER);
         Button refresh = new Button(this);
         refresh.setText("Refresh");
         refresh.setOnClickListener(v -> refreshCurrentProvider());
         actions.addView(refresh);
-
         Button disconnect = new Button(this);
         disconnect.setText("Disconnect");
         disconnect.setOnClickListener(v -> disconnectVpn());
@@ -297,38 +331,60 @@ public final class MainActivity extends Activity {
         progress.setVisibility(View.GONE);
         root.addView(progress);
 
-        ScrollView scroll = new ScrollView(this);
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(content);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        content.setVisibility(View.GONE);
+        root.addView(content);
 
         TextView disclaimer = new TextView(this);
-        disclaimer.setText("NiceVPN includes its own VPN engine. VPN Gate relays are volunteer-operated; VPNBook is a shared free service.");
-        disclaimer.setTextSize(12);
+        disclaimer.setText("VPN Gate relays are volunteer-operated. VPNBook is a shared free service.");
+        disclaimer.setTextSize(11);
         disclaimer.setTextColor(0xFF6A4B24);
-        disclaimer.setPadding(dp(10), dp(10), dp(10), dp(10));
+        disclaimer.setPadding(dp(10), dp(8), dp(10), dp(8));
         disclaimer.setBackgroundColor(0xFFFFF1D8);
         root.addView(disclaimer);
 
         setContentView(root);
+        updateProviderButtons();
+    }
+
+    private void updateProviderButtons() {
+        if (vpnGateButton == null || vpnBookButton == null) return;
+        boolean gate = "gate".equals(activeProvider);
+        boolean book = "vpnbook".equals(activeProvider);
+        vpnGateButton.setBackgroundTintList(ColorStateList.valueOf(gate ? 0xFF17384B : 0xFF5A5A5A));
+        vpnBookButton.setBackgroundTintList(ColorStateList.valueOf(book ? 0xFF17384B : 0xFF5A5A5A));
+        vpnGateButton.setTextColor(0xFFFFFFFF);
+        vpnBookButton.setTextColor(0xFFFFFFFF);
+    }
+
+    private String providerName() {
+        return "vpnbook".equals(activeProvider) ? "VPNBook" : "VPN Gate";
+    }
+
+    private String activeCountry() {
+        if (activeGateServer != null && activeGateServer.country != null) return activeGateServer.country;
+        if (activeVpnBookServer != null && activeVpnBookServer.country != null) return activeVpnBookServer.country;
+        return "selected location";
     }
 
     private void showProviderChooser() {
         activeProvider = "chooser";
-        status.setText("Choose VPN Gate or VPNBook above.");
+        updateProviderButtons();
+        providerSelection.setText("Choose VPN Gate or VPNBook");
+        vpnBookCredentialStatus.setVisibility(View.GONE);
+        status.setText("Choose a provider to begin");
         progress.setVisibility(View.GONE);
+        connectButton.setEnabled(false);
         content.removeAllViews();
-        TextView hint = new TextView(this);
-        hint.setText("Choose a provider to view its servers. VPNBook credentials are refreshed whenever NiceVPN opens.");
-        hint.setTextSize(15);
-        hint.setTextColor(0xFF52616B);
-        hint.setPadding(dp(8), dp(16), dp(8), dp(16));
-        content.addView(hint);
+        globe.clearConnection();
     }
 
     private void showVpnGateProvider() {
         activeProvider = "gate";
+        updateProviderButtons();
+        vpnBookCredentialStatus.setVisibility(View.GONE);
+        providerSelection.setText("Selected provider: VPN Gate");
         if (servers.isEmpty()) {
             refreshServers();
         } else {
@@ -338,6 +394,9 @@ public final class MainActivity extends Activity {
 
     private void showVpnBookProvider() {
         activeProvider = "vpnbook";
+        updateProviderButtons();
+        vpnBookCredentialStatus.setVisibility(View.VISIBLE);
+        providerSelection.setText("Selected provider: VPNBook");
         showVpnBookServers();
     }
 
@@ -356,37 +415,14 @@ public final class MainActivity extends Activity {
         progress.setVisibility(View.GONE);
         content.removeAllViews();
         List<VpnBookServer> bookServers = VpnBookServer.available();
-        status.setText(bookServers.size() + " VPNBook OpenVPN servers · UDP 25000 first, TCP 443 fallback");
-        for (VpnBookServer server : bookServers) {
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(14), dp(12), dp(14), dp(12));
-            card.setBackgroundColor(0xFFFFFFFF);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-            params.setMargins(0, dp(6), 0, dp(6));
-            card.setLayoutParams(params);
-
-            TextView name = new TextView(this);
-            name.setText(server.country + " · " + server.host);
-            name.setTextSize(17);
-            name.setTypeface(null, 1);
-            name.setTextColor(0xFF17384B);
-            card.addView(name);
-
-            TextView details = new TextView(this);
-            details.setText("OpenVPN · UDP 25000 · shared free relay");
-            details.setTextSize(13);
-            details.setTextColor(0xFF52616B);
-            details.setPadding(0, dp(5), 0, dp(8));
-            card.addView(details);
-
-            Button connect = new Button(this);
-            connect.setText("Connect");
-            connect.setEnabled(vpnBookPassword != null);
-            connect.setOnClickListener(v -> connectToVpnBook(server));
-            card.addView(connect);
-            content.addView(card);
-        }
+        selectedVpnBookServer = bookServers.isEmpty() ? null : bookServers.get(0);
+        providerSelection.setText(selectedVpnBookServer == null
+                ? "Selected provider: VPNBook · no servers available"
+                : "Selected provider: VPNBook · location selected automatically");
+        status.setText(selectedVpnBookServer == null
+                ? "No VPNBook servers are available. Tap Refresh to retry."
+                : "Ready to connect through VPNBook");
+        connectButton.setEnabled(selectedVpnBookServer != null && vpnBookPassword != null);
     }
 
     private void refreshVpnBookPassword() {
@@ -462,56 +498,32 @@ public final class MainActivity extends Activity {
         servers.clear();
         servers.addAll(result);
         content.removeAllViews();
-        status.setText(result.size() + " servers · sorted by reported speed");
-
-        if (result.isEmpty()) {
-            status.setText("No usable OpenVPN profiles were returned.");
+        selectedGateServer = result.isEmpty() ? null : result.get(0);
+        if (selectedGateServer == null) {
+            providerSelection.setText("Selected provider: VPN Gate · no servers available");
+            status.setText("No usable VPN Gate relays were found. Tap Refresh to retry.");
+            connectButton.setEnabled(false);
             return;
         }
-
-        int count = Math.min(result.size(), 100);
-        for (int i = 0; i < count; i++) {
-            content.addView(serverCard(result.get(i)));
-        }
+        providerSelection.setText("Selected provider: VPN Gate · fastest available location selected");
+        status.setText("Ready to connect through VPN Gate");
+        connectButton.setEnabled(true);
     }
 
-    private View serverCard(VpnGateServer server) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        card.setBackgroundColor(0xFFFFFFFF);
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
-        cardParams.setMargins(0, dp(6), 0, dp(6));
-        card.setLayoutParams(cardParams);
-
-        TextView name = new TextView(this);
-        name.setText(server.country + " · " + server.host);
-        name.setTextSize(17);
-        name.setTypeface(null, 1);
-        name.setTextColor(0xFF17384B);
-        card.addView(name);
-
-        TextView details = new TextView(this);
-        details.setText(server.speedLabel()
-                + " · Ping " + display(server.ping, "unknown") + " ms"
-                + " · " + display(server.sessions, "?") + " sessions"
-                + "\nLogging policy: " + display(server.logPolicy, "not listed")
-                + (server.operator.isEmpty() ? "" : "\nOperator: " + server.operator));
-        details.setTextSize(13);
-        details.setTextColor(0xFF52616B);
-        details.setPadding(0, dp(5), 0, dp(8));
-        card.addView(details);
-
-        Button connect = new Button(this);
-        connect.setText("Connect");
-        connect.setOnClickListener(v -> connectTo(server));
-        card.addView(connect);
-
-        Button export = new Button(this);
-        export.setText("Save profile only");
-        export.setOnClickListener(v -> saveProfile(server));
-        card.addView(export);
-        return card;
+    private void connectSelectedProvider() {
+        if ("gate".equals(activeProvider)) {
+            if (selectedGateServer == null) {
+                refreshServers();
+            } else {
+                connectTo(selectedGateServer);
+            }
+        } else if ("vpnbook".equals(activeProvider)) {
+            if (selectedVpnBookServer == null) {
+                showVpnBookServers();
+            } else {
+                connectToVpnBook(selectedVpnBookServer);
+            }
+        }
     }
 
     private void connectTo(VpnGateServer server) {
@@ -524,7 +536,8 @@ public final class MainActivity extends Activity {
         pendingConnect = server;
         pendingInlineConfig = null;
         pendingConnectionLabel = server.country + " relay";
-        status.setText("Starting selected relay…");
+        globe.setSpinning(true);
+        status.setText("Connecting through VPN Gate…");
         beginOpenVpnConnection();
     }
 
@@ -540,7 +553,8 @@ public final class MainActivity extends Activity {
             refreshVpnBookPassword();
             return;
         }
-        status.setText("Downloading fast UDP 25000 profile for " + server.host + "…");
+        globe.setSpinning(true);
+        status.setText("Preparing VPNBook connection…");
         executor.execute(() -> {
             try {
                 String profile = VpnBookConfigFetcher.downloadProfile(server, password);
@@ -556,7 +570,10 @@ public final class MainActivity extends Activity {
                         ? error.getClass().getSimpleName() : error.getMessage();
                 if (reason.length() > 110) reason = reason.substring(0, 107) + "…";
                 String failure = reason;
-                mainHandler.post(() -> status.setText("VPNBook profile failed: " + failure));
+                mainHandler.post(() -> {
+                    globe.setSpinning(false);
+                    status.setText("VPNBook profile failed: " + failure);
+                });
             }
         });
     }
@@ -649,6 +666,7 @@ public final class MainActivity extends Activity {
 
     private void disconnectVpn() {
         clearRelayConnectWatchdog();
+        globe.clearConnection();
         activeGateServer = null;
         activeVpnBookServer = null;
         vpnBookTcpFallbackAttempted = false;
@@ -701,6 +719,136 @@ public final class MainActivity extends Activity {
         intent.setType("application/x-openvpn-profile");
         intent.putExtra(Intent.EXTRA_TITLE, fileName.replaceAll("[^A-Za-z0-9._-]", "_"));
         startActivityForResult(intent, CREATE_PROFILE_REQUEST);
+    }
+
+    private final class GlobeView extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private boolean spinning;
+        private boolean connected;
+        private String country;
+        private float rotation;
+
+        GlobeView() {
+            super(MainActivity.this);
+        }
+
+        void setSpinning(boolean value) {
+            spinning = value;
+            if (value) connected = false;
+            invalidate();
+        }
+
+        void setConnectedCountry(String value) {
+            country = value == null ? "Selected location" : value;
+            connected = true;
+            spinning = false;
+            invalidate();
+        }
+
+        void clearConnection() {
+            spinning = false;
+            connected = false;
+            country = null;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float cx = getWidth() / 2f;
+            float cy = getHeight() / 2f;
+            float radius = Math.min(getWidth(), getHeight()) * 0.39f;
+            if (radius <= 0) return;
+
+            paint.setShader(new RadialGradient(cx - radius * .32f, cy - radius * .38f,
+                    radius * 1.65f, 0xFF65B7D8, 0xFF12364F, Shader.TileMode.CLAMP));
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawCircle(cx, cy, radius, paint);
+            paint.setShader(null);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(1.4f));
+            paint.setColor(0xFF9DDCF0);
+            canvas.drawCircle(cx, cy, radius, paint);
+
+            int save = canvas.save();
+            canvas.clipPath(new Path() {{
+                addCircle(cx, cy, radius - dp(1), Path.Direction.CW);
+            }});
+            canvas.rotate(rotation, cx, cy);
+            paint.setStrokeWidth(dp(1));
+            paint.setColor(0x667ED4E7);
+            for (float factor : new float[]{0.25f, 0.52f, 0.78f}) {
+                float half = radius * factor;
+                canvas.drawOval(cx - half, cy - radius, cx + half, cy + radius, paint);
+            }
+            for (float factor : new float[]{-0.66f, -0.34f, 0f, 0.34f, 0.66f}) {
+                float y = cy + radius * factor;
+                float halfWidth = radius * (float)Math.sqrt(1f - factor * factor);
+                canvas.drawOval(cx - halfWidth, y - radius * .12f, cx + halfWidth, y + radius * .12f, paint);
+            }
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0xFF66B77B);
+            Path land = new Path();
+            land.moveTo(cx - radius*.62f, cy - radius*.18f);
+            land.cubicTo(cx-radius*.68f, cy-radius*.45f, cx-radius*.36f, cy-radius*.55f, cx-radius*.24f, cy-radius*.31f);
+            land.cubicTo(cx-radius*.13f, cy-radius*.16f, cx-radius*.25f, cy-radius*.02f, cx-radius*.2f, cy+radius*.17f);
+            land.cubicTo(cx-radius*.25f, cy+radius*.34f, cx-radius*.42f, cy+radius*.5f, cx-radius*.45f, cy+radius*.31f);
+            land.cubicTo(cx-radius*.51f, cy+radius*.16f, cx-radius*.68f, cy+radius*.08f, cx-radius*.62f, cy-radius*.18f);
+            land.close();
+            canvas.drawPath(land, paint);
+            Path asia = new Path();
+            asia.moveTo(cx-radius*.1f, cy-radius*.35f);
+            asia.cubicTo(cx+radius*.05f, cy-radius*.55f, cx+radius*.42f, cy-radius*.48f, cx+radius*.62f, cy-radius*.28f);
+            asia.cubicTo(cx+radius*.72f, cy-radius*.13f, cx+radius*.5f, cy+radius*.02f, cx+radius*.28f, cy-radius*.05f);
+            asia.cubicTo(cx+radius*.16f, cy+radius*.02f, cx+radius*.06f, cy-radius*.12f, cx-radius*.1f, cy-radius*.12f);
+            asia.close();
+            canvas.drawPath(asia, paint);
+            Path africa = new Path();
+            africa.moveTo(cx-radius*.09f, cy+radius*.02f);
+            africa.cubicTo(cx+radius*.14f, cy-radius*.02f, cx+radius*.24f, cy+radius*.14f, cx+radius*.12f, cy+radius*.42f);
+            africa.cubicTo(cx+radius*.03f, cy+radius*.56f, cx-radius*.09f, cy+radius*.37f, cx-radius*.14f, cy+radius*.2f);
+            africa.close();
+            canvas.drawPath(africa, paint);
+            canvas.restoreToCount(save);
+
+            if (connected) drawPin(canvas, cx, cy, radius);
+            if (spinning) {
+                rotation = (rotation + 4f) % 360f;
+                postInvalidateDelayed(35L);
+            }
+        }
+
+        private void drawPin(Canvas canvas, float cx, float cy, float radius) {
+            float[] point = countryPoint(country);
+            float x = cx + point[0] * radius;
+            float y = cy + point[1] * radius;
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0xFFE53935);
+            Path pin = new Path();
+            pin.moveTo(x, y + dp(11));
+            pin.cubicTo(x - dp(2), y + dp(4), x - dp(10), y - dp(2), x - dp(10), y - dp(9));
+            pin.arcTo(new RectF(x - dp(10), y - dp(19), x + dp(10), y + dp(1)), 180, 360);
+            pin.cubicTo(x + dp(10), y - dp(2), x + dp(2), y + dp(4), x, y + dp(11));
+            pin.close();
+            canvas.drawPath(pin, paint);
+            paint.setColor(0xFFFFFFFF);
+            canvas.drawCircle(x, y - dp(9), dp(3), paint);
+        }
+
+        private float[] countryPoint(String value) {
+            String c = value == null ? "" : value.toLowerCase(java.util.Locale.ROOT);
+            if (c.contains("japan")) return new float[]{.62f, -.10f};
+            if (c.contains("canada")) return new float[]{-.34f, -.38f};
+            if (c.contains("united states") || c.contains("usa") || c.equals("us")) return new float[]{-.48f, -.02f};
+            if (c.contains("bangladesh")) return new float[]{.42f, .10f};
+            if (c.contains("germany")) return new float[]{.08f, -.16f};
+            if (c.contains("france")) return new float[]{.03f, -.10f};
+            if (c.contains("united kingdom") || c.contains("uk")) return new float[]{-.02f, -.19f};
+            if (c.contains("singapore")) return new float[]{.36f, .22f};
+            if (c.contains("netherlands")) return new float[]{.06f, -.20f};
+            if (c.contains("india")) return new float[]{.30f, .08f};
+            return new float[]{.08f, .02f};
+        }
     }
 
     private String display(String value, String fallback) {
