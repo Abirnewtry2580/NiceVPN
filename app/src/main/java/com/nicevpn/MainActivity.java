@@ -273,14 +273,15 @@ public final class MainActivity extends Activity {
         vpnBookCredentialStatus.setPadding(0, 0, 0, dp(8));
         root.addView(vpnBookCredentialStatus);
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setGravity(Gravity.CENTER_VERTICAL);
         status = new TextView(this);
         status.setText("Choose a VPN provider.");
         status.setTextSize(14);
         status.setTextColor(0xFF425563);
-        actions.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
+        status.setPadding(0, dp(8), 0, dp(4));
+        root.addView(status, new LinearLayout.LayoutParams(-1, -2));
 
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
         Button refresh = new Button(this);
         refresh.setText("Refresh");
         refresh.setOnClickListener(v -> refreshCurrentProvider());
@@ -355,7 +356,7 @@ public final class MainActivity extends Activity {
         progress.setVisibility(View.GONE);
         content.removeAllViews();
         List<VpnBookServer> bookServers = VpnBookServer.available();
-        status.setText(bookServers.size() + " VPNBook OpenVPN servers · TCP 443");
+        status.setText(bookServers.size() + " VPNBook OpenVPN servers · UDP 25000 first, TCP 443 fallback");
         for (VpnBookServer server : bookServers) {
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
@@ -373,7 +374,7 @@ public final class MainActivity extends Activity {
             card.addView(name);
 
             TextView details = new TextView(this);
-            details.setText("OpenVPN · TCP 443 · shared free relay");
+            details.setText("OpenVPN · UDP 25000 · shared free relay");
             details.setTextSize(13);
             details.setTextColor(0xFF52616B);
             details.setPadding(0, dp(5), 0, dp(8));
