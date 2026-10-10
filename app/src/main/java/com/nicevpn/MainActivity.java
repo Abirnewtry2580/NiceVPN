@@ -723,10 +723,17 @@ public final class MainActivity extends Activity {
 
     private final class GlobeView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final List<WorldMapData.Ring> rings = WorldMapData.RINGS;
         private boolean spinning;
-        private boolean connected;
-        private String country;
+        private boolean focusing;
+        private boolean pinVisible;
         private float rotation;
+        private float centerLatitude;
+        private float zoom = 1f;
+        private float targetLongitude;
+        private float targetLatitude;
+        private int selectedCountry = -1;
+        private String connectedCountry;
 
         GlobeView() {
             super(MainActivity.this);
@@ -734,21 +741,34 @@ public final class MainActivity extends Activity {
 
         void setSpinning(boolean value) {
             spinning = value;
-            if (value) connected = false;
-            invalidate();
+            focusing = false;
+            pinVisible = false;
+            connectedCountry = null;
+            selectedCountry = -1;
+            centerLatitude = 0f;
+            zoom = 1f;
+            if (value) invalidate();
         }
 
         void setConnectedCountry(String value) {
-            country = value == null ? "Selected location" : value;
-            connected = true;
+            connectedCountry = value == null ? "Selected location" : value;
+            selectedCountry = WorldMapData.findCountry(connectedCountry);
+            targetLongitude = selectedCountry >= 0 ? WorldMapData.CENTER_LON[selectedCountry] : 0f;
+            targetLatitude = selectedCountry >= 0 ? WorldMapData.CENTER_LAT[selectedCountry] : 0f;
             spinning = false;
+            focusing = true;
+            pinVisible = false;
             invalidate();
         }
 
         void clearConnection() {
             spinning = false;
-            connected = false;
-            country = null;
+            focusing = false;
+            pinVisible = false;
+            connectedCountry = null;
+            selectedCountry = -1;
+            centerLatitude = 0f;
+            zoom = 1f;
             invalidate();
         }
 
@@ -757,97 +777,208 @@ public final class MainActivity extends Activity {
             super.onDraw(canvas);
             float cx = getWidth() / 2f;
             float cy = getHeight() / 2f;
-            float radius = Math.min(getWidth(), getHeight()) * 0.39f;
-            if (radius <= 0) return;
+            float radius = Math.min(getWidth(), getHeight()) * 0.40f;
+            if (radius <= 0f) return;
 
             paint.setShader(new RadialGradient(cx - radius * .32f, cy - radius * .38f,
-                    radius * 1.65f, 0xFF65B7D8, 0xFF12364F, Shader.TileMode.CLAMP));
+                    radius * 1.65f, 0xFF63B5D7, 0xFF102F48, Shader.TileMode.CLAMP));
             paint.setStyle(Paint.Style.FILL);
             canvas.drawCircle(cx, cy, radius, paint);
             paint.setShader(null);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(dp(1) + getResources().getDisplayMetrics().density * 0.4f);
-            paint.setColor(0xFF9DDCF0);
-            canvas.drawCircle(cx, cy, radius, paint);
 
-            int save = canvas.save();
-            canvas.clipPath(new Path() {{
-                addCircle(cx, cy, radius - dp(1), Path.Direction.CW);
-            }});
-            canvas.rotate(rotation, cx, cy);
-            paint.setStrokeWidth(dp(1));
-            paint.setColor(0x667ED4E7);
-            for (float factor : new float[]{0.25f, 0.52f, 0.78f}) {
-                float half = radius * factor;
-                canvas.drawOval(cx - half, cy - radius, cx + half, cy + radius, paint);
+            int clip = canvas.save();
+            Path globeClip = new Path();
+            globeClip.addCircle(cx, cy, radius - dp(1), Path.Direction.CW);
+            canvas.clipPath(globeClip);
+            drawGraticule(canvas, cx, cy, radius);
+
+            // Draw the actual country outlines and coastlines. The map is projected onto a
+            // rotating sphere, so the far side naturally disappears behind the globe.
+            for (WorldMapData.Ring ring : rings) {
+                if (ring.country != selectedCountry) drawCountryRing(canvas, ring, cx, cy, radius, false);
             }
-            for (float factor : new float[]{-0.66f, -0.34f, 0f, 0.34f, 0.66f}) {
-                float y = cy + radius * factor;
-                float halfWidth = radius * (float)Math.sqrt(1f - factor * factor);
-                canvas.drawOval(cx - halfWidth, y - radius * .12f, cx + halfWidth, y + radius * .12f, paint);
+            if (selectedCountry >= 0) {
+                for (WorldMapData.Ring ring : rings) {
+                    if (ring.country == selectedCountry) drawCountryRing(canvas, ring, cx, cy, radius, true);
+                }
+            }
+            canvas.restoreToCount(clip);
+
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(2));
+            paint.setColor(0xFFB7E8F4);
+            canvas.drawCircle(cx, cy, radius, paint);
+            paint.setStyle(Paint.Style.FILL);
+
+            if (pinVisible) drawPin(canvas, cx, cy, radius);
+            advanceAnimation();
+        }
+
+        private void drawCountryRing(Canvas canvas, WorldMapData.Ring ring,
+                                     float cx, float cy, float radius, boolean selected) {
+            Path path = projectRing(ring.coordinates, cx, cy, radius);
+            if (path.isEmpty()) return;
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(selected ? 0xFFFFC857 : 0xFF68B482);
+            canvas.drawPath(path, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(selected ? dp(1.5f) : dp(.65f));
+            paint.setColor(selected ? 0xFFFFF0B3 : 0xFF17495A);
+            canvas.drawPath(path, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+
+        private Path projectRing(float[] coordinates, float cx, float cy, float radius) {
+            Path path = new Path();
+            int count = coordinates.length / 2;
+            if (count < 3) return path;
+            float scale = radius * zoom;
+            Projected previous = project(coordinates[(count - 1) * 2],
+                    coordinates[(count - 1) * 2 + 1], cx, cy, scale);
+            boolean open = false;
+            for (int i = 0; i < count; i++) {
+                Projected current = project(coordinates[i * 2], coordinates[i * 2 + 1], cx, cy, scale);
+                if (previous.visible && current.visible) {
+                    if (!open) {
+                        path.moveTo(previous.x, previous.y);
+                        open = true;
+                    }
+                    path.lineTo(current.x, current.y);
+                } else if (previous.visible) {
+                    Projected horizon = horizon(previous, current, coordinates[(i + count - 1) % count * 2],
+                            coordinates[(i + count - 1) % count * 2 + 1], coordinates[i * 2],
+                            coordinates[i * 2 + 1], cx, cy, scale);
+                    if (!open) path.moveTo(previous.x, previous.y);
+                    path.lineTo(horizon.x, horizon.y);
+                    path.close();
+                    open = false;
+                } else if (current.visible) {
+                    Projected edge = horizon(previous, current, coordinates[(i + count - 1) % count * 2],
+                            coordinates[(i + count - 1) % count * 2 + 1], coordinates[i * 2],
+                            coordinates[i * 2 + 1], cx, cy, scale);
+                    path.moveTo(edge.x, edge.y);
+                    path.lineTo(current.x, current.y);
+                    open = true;
+                }
+                previous = current;
+            }
+            if (open) path.close();
+            return path;
+        }
+
+        private Projected horizon(Projected a, Projected b, float lonA, float latA,
+                                  float lonB, float latB, float cx, float cy, float scale) {
+            float low = 0f, high = 1f;
+            boolean aVisible = a.visible;
+            for (int i = 0; i < 14; i++) {
+                float mid = (low + high) * .5f;
+                Projected test = project(lonA + (lonB - lonA) * mid,
+                        latA + (latB - latA) * mid, cx, cy, scale);
+                if (test.visible == aVisible) low = mid; else high = mid;
+            }
+            float t = (low + high) * .5f;
+            return project(lonA + (lonB - lonA) * t, latA + (latB - latA) * t, cx, cy, scale);
+        }
+
+        private Projected project(float longitude, float latitude, float cx, float cy, float scale) {
+            double lat = Math.toRadians(latitude);
+            double delta = Math.toRadians(longitude - rotation);
+            double center = Math.toRadians(centerLatitude);
+            double cosLat = Math.cos(lat);
+            float x = cx + scale * (float)(cosLat * Math.sin(delta));
+            float y = cy - scale * (float)(Math.sin(lat) * Math.cos(center)
+                    - cosLat * Math.cos(delta) * Math.sin(center));
+            double depth = Math.sin(lat) * Math.sin(center) + cosLat * Math.cos(delta) * Math.cos(center);
+            return new Projected(x, y, depth >= -0.0001);
+        }
+
+        private void drawGraticule(Canvas canvas, float cx, float cy, float radius) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(.7f));
+            paint.setColor(0x558FE0EE);
+            for (int lon = -150; lon <= 180; lon += 30) {
+                Path path = new Path();
+                boolean started = false;
+                for (int lat = -88; lat <= 88; lat += 3) {
+                    Projected p = project(rotation + lon, lat, cx, cy, radius * zoom);
+                    if (p.visible) {
+                        if (!started) { path.moveTo(p.x, p.y); started = true; }
+                        else path.lineTo(p.x, p.y);
+                    } else started = false;
+                }
+                canvas.drawPath(path, paint);
+            }
+            for (int lat = -60; lat <= 60; lat += 30) {
+                Path path = new Path();
+                boolean started = false;
+                for (int lon = -180; lon <= 180; lon += 3) {
+                    Projected p = project(rotation + lon, lat, cx, cy, radius * zoom);
+                    if (p.visible) {
+                        if (!started) { path.moveTo(p.x, p.y); started = true; }
+                        else path.lineTo(p.x, p.y);
+                    } else started = false;
+                }
+                canvas.drawPath(path, paint);
             }
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xFF66B77B);
-            Path land = new Path();
-            land.moveTo(cx - radius*.62f, cy - radius*.18f);
-            land.cubicTo(cx-radius*.68f, cy-radius*.45f, cx-radius*.36f, cy-radius*.55f, cx-radius*.24f, cy-radius*.31f);
-            land.cubicTo(cx-radius*.13f, cy-radius*.16f, cx-radius*.25f, cy-radius*.02f, cx-radius*.2f, cy+radius*.17f);
-            land.cubicTo(cx-radius*.25f, cy+radius*.34f, cx-radius*.42f, cy+radius*.5f, cx-radius*.45f, cy+radius*.31f);
-            land.cubicTo(cx-radius*.51f, cy+radius*.16f, cx-radius*.68f, cy+radius*.08f, cx-radius*.62f, cy-radius*.18f);
-            land.close();
-            canvas.drawPath(land, paint);
-            Path asia = new Path();
-            asia.moveTo(cx-radius*.1f, cy-radius*.35f);
-            asia.cubicTo(cx+radius*.05f, cy-radius*.55f, cx+radius*.42f, cy-radius*.48f, cx+radius*.62f, cy-radius*.28f);
-            asia.cubicTo(cx+radius*.72f, cy-radius*.13f, cx+radius*.5f, cy+radius*.02f, cx+radius*.28f, cy-radius*.05f);
-            asia.cubicTo(cx+radius*.16f, cy+radius*.02f, cx+radius*.06f, cy-radius*.12f, cx-radius*.1f, cy-radius*.12f);
-            asia.close();
-            canvas.drawPath(asia, paint);
-            Path africa = new Path();
-            africa.moveTo(cx-radius*.09f, cy+radius*.02f);
-            africa.cubicTo(cx+radius*.14f, cy-radius*.02f, cx+radius*.24f, cy+radius*.14f, cx+radius*.12f, cy+radius*.42f);
-            africa.cubicTo(cx+radius*.03f, cy+radius*.56f, cx-radius*.09f, cy+radius*.37f, cx-radius*.14f, cy+radius*.2f);
-            africa.close();
-            canvas.drawPath(africa, paint);
-            canvas.restoreToCount(save);
-
-            if (connected) drawPin(canvas, cx, cy, radius);
-            if (spinning) {
-                rotation = (rotation + 4f) % 360f;
-                postInvalidateDelayed(35L);
-            }
         }
 
         private void drawPin(Canvas canvas, float cx, float cy, float radius) {
-            float[] point = countryPoint(country);
-            float x = cx + point[0] * radius;
-            float y = cy + point[1] * radius;
+            Projected p = project(targetLongitude, targetLatitude, cx, cy, radius * zoom);
+            float x = p.x;
+            float y = p.y - dp(12);
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(0xFFE53935);
             Path pin = new Path();
-            pin.moveTo(x, y + dp(11));
-            pin.cubicTo(x - dp(2), y + dp(4), x - dp(10), y - dp(2), x - dp(10), y - dp(9));
-            pin.arcTo(new RectF(x - dp(10), y - dp(19), x + dp(10), y + dp(1)), 180, 360);
-            pin.cubicTo(x + dp(10), y - dp(2), x + dp(2), y + dp(4), x, y + dp(11));
+            pin.moveTo(x, y + dp(18));
+            pin.cubicTo(x - dp(3), y + dp(10), x - dp(12), y + dp(1), x - dp(12), y - dp(7));
+            pin.arcTo(new RectF(x - dp(12), y - dp(19), x + dp(12), y + dp(5)), 180, 360);
+            pin.cubicTo(x + dp(12), y + dp(1), x + dp(3), y + dp(10), x, y + dp(18));
             pin.close();
             canvas.drawPath(pin, paint);
             paint.setColor(0xFFFFFFFF);
-            canvas.drawCircle(x, y - dp(9), dp(3), paint);
+            canvas.drawCircle(x, y - dp(7), dp(4), paint);
         }
 
-        private float[] countryPoint(String value) {
-            String c = value == null ? "" : value.toLowerCase(java.util.Locale.ROOT);
-            if (c.contains("japan")) return new float[]{.62f, -.10f};
-            if (c.contains("canada")) return new float[]{-.34f, -.38f};
-            if (c.contains("united states") || c.contains("usa") || c.equals("us")) return new float[]{-.48f, -.02f};
-            if (c.contains("bangladesh")) return new float[]{.42f, .10f};
-            if (c.contains("germany")) return new float[]{.08f, -.16f};
-            if (c.contains("france")) return new float[]{.03f, -.10f};
-            if (c.contains("united kingdom") || c.contains("uk")) return new float[]{-.02f, -.19f};
-            if (c.contains("singapore")) return new float[]{.36f, .22f};
-            if (c.contains("netherlands")) return new float[]{.06f, -.20f};
-            if (c.contains("india")) return new float[]{.30f, .08f};
-            return new float[]{.08f, .02f};
+        private void advanceAnimation() {
+            if (spinning) {
+                rotation = normalizeAngle(rotation + 1.3f);
+            } else if (focusing) {
+                float difference = shortestAngle(targetLongitude - rotation);
+                rotation = normalizeAngle(rotation + difference * .12f);
+                centerLatitude += (targetLatitude - centerLatitude) * .12f;
+                zoom += (2.1f - zoom) * .10f;
+                if (Math.abs(difference) < .25f
+                        && Math.abs(targetLatitude - centerLatitude) < .15f
+                        && Math.abs(2.1f - zoom) < .015f) {
+                    rotation = normalizeAngle(targetLongitude);
+                    centerLatitude = targetLatitude;
+                    zoom = 2.1f;
+                    focusing = false;
+                    pinVisible = true;
+                }
+            }
+            if (spinning || focusing) postInvalidateDelayed(40L);
+        }
+
+        private float normalizeAngle(float angle) {
+            angle %= 360f;
+            return angle < 0 ? angle + 360f : angle;
+        }
+
+        private float shortestAngle(float angle) {
+            angle = normalizeAngle(angle);
+            return angle > 180f ? angle - 360f : angle;
+        }
+
+        private final class Projected {
+            final float x, y;
+            final boolean visible;
+            Projected(float x, float y, boolean visible) {
+                this.x = x;
+                this.y = y;
+                this.visible = visible;
+            }
         }
     }
 
