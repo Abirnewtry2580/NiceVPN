@@ -60,8 +60,8 @@ public final class VpnBookConfigFetcher {
     }
 
     static String configArchiveUrl(VpnBookServer server) {
-        return "https://www.vpnbook.com/free-openvpn-account/VPNBook.com-OpenVPN-"
-                + server.archiveId.toUpperCase(Locale.ROOT) + ".zip";
+        return "https://www.vpnbook.com/free-openvpn-account/vpnbook-openvpn-"
+                + server.archiveId.toLowerCase(Locale.ROOT) + ".zip";
     }
 
     static String extractProfile(byte[] archive, VpnBookServer server, String password)
