@@ -80,7 +80,9 @@ public final class VpnBookConfigFetcher {
             while ((entry = zip.getNextEntry()) != null) {
                 String name = entry.getName().toLowerCase(Locale.ROOT);
                 int priority = profilePriority(name, preferUdp);
-                if (entry.isDirectory() || !name.endsWith(".ovpn") || priority >= bestPriority) {
+                if (entry.isDirectory() || !name.endsWith(".ovpn")
+                        || !name.contains(server.archiveId.toLowerCase(Locale.ROOT))
+                        || priority >= bestPriority) {
                     continue;
                 }
                 ByteArrayOutputStream profileBytes = new ByteArrayOutputStream();
@@ -130,15 +132,43 @@ public final class VpnBookConfigFetcher {
 
     private static boolean hasExpectedRemote(String profile, String expectedHost, int expectedPort) {
         if (profile == null || expectedHost == null) return false;
+        java.util.regex.Pattern remotePattern = java.util.regex.Pattern.compile(
+                "(?i)^remote\\s+(\\S+)\\s+(\\d+)(?:\\s+.*)?$");
         for (String line : profile.split("\\r?\\n")) {
-            String trimmed = line.trim();
-            if (trimmed.matches("(?i)^remote\\s+"
-                    + java.util.regex.Pattern.quote(expectedHost)
-                    + "\\s+" + expectedPort + "(?:\\s+.*)?$")) {
+            java.util.regex.Matcher remote = remotePattern.matcher(line.trim());
+            if (remote.matches()
+                    && isSelectedHostOrIp(remote.group(1), expectedHost)
+                    && Integer.toString(expectedPort).equals(remote.group(2))) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean isSelectedHostOrIp(String remoteHost, String expectedHost) {
+        return remoteHost.equalsIgnoreCase(expectedHost) || isIpLiteral(remoteHost);
+    }
+
+    private static boolean isIpLiteral(String value) {
+        if (value == null || value.isEmpty()) return false;
+        String host = value;
+        if (host.startsWith("[") && host.endsWith("]")) {
+            host = host.substring(1, host.length() - 1);
+        }
+        if (host.indexOf(':') >= 0) {
+            return host.matches("(?i)[0-9a-f:]+");
+        }
+        String[] octets = host.split("\\.", -1);
+        if (octets.length != 4) return false;
+        for (String octet : octets) {
+            if (!octet.matches("\\d{1,3}")) return false;
+            try {
+                if (Integer.parseInt(octet) > 255) return false;
+            } catch (NumberFormatException invalid) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static String inlineCredentials(String profile, String expectedHost, String password) {
@@ -151,8 +181,10 @@ public final class VpnBookConfigFetcher {
         boolean expectedRemote = false;
         for (String line : profile.split("\\r?\\n")) {
             String trimmed = line.trim();
-            if (trimmed.matches("(?i)^remote\\s+" + java.util.regex.Pattern.quote(expectedHost)
-                    + "\\s+(?:53|80|443|25000)(?:\\s+.*)?$")) {
+            java.util.regex.Matcher remote = java.util.regex.Pattern
+                    .compile("(?i)^remote\\s+(\\S+)\\s+(53|80|443|25000)(?:\\s+.*)?$")
+                    .matcher(trimmed);
+            if (remote.matches() && isSelectedHostOrIp(remote.group(1), expectedHost)) {
                 expectedRemote = true;
                 break;
             }
